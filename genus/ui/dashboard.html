@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GENUS Dashboard - Decision Feedback System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .decision-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .decision-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 10px;
+        }
+
+        .decision-info {
+            flex: 1;
+        }
+
+        .decision-id {
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+        }
+
+        .decision-type {
+            font-weight: bold;
+            color: #333;
+            margin: 5px 0;
+        }
+
+        .decision-agent {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .feedback-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .feedback-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .feedback-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .btn-positive {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-positive:hover {
+            background: #218838;
+        }
+
+        .btn-negative {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-negative:hover {
+            background: #c82333;
+        }
+
+        .btn-neutral {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-neutral:hover {
+            background: #e0a800;
+        }
+
+        .feedback-list {
+            margin-top: 10px;
+            padding-left: 15px;
+        }
+
+        .feedback-item {
+            background: white;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 5px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .feedback-score {
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 3px;
+            color: white;
+        }
+
+        .score-positive {
+            background: #28a745;
+        }
+
+        .score-negative {
+            background: #dc3545;
+        }
+
+        .score-neutral {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+
+        .timestamp {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .error {
+            background: #dc3545;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .success {
+            background: #28a745;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧬 GENUS Dashboard</h1>
+            <p class="subtitle">Decision Feedback System - Monitor and provide feedback on agent decisions</p>
+        </header>
+
+        <div id="message"></div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalDecisions">0</div>
+                <div class="stat-label">Total Decisions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalFeedback">0</div>
+                <div class="stat-label">Total Feedback</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avgScore">0.0</div>
+                <div class="stat-label">Average Score</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card">
+                <h2>
+                    Recent Decisions
+                    <button class="refresh-btn" onclick="loadDecisions()">Refresh</button>
+                </h2>
+                <div id="decisionsList"></div>
+            </div>
+
+            <div class="card">
+                <h2>
+                    Recent Feedback
+                    <button class="refresh-btn" onclick="loadFeedback()">Refresh</button>
+                </h2>
+                <div id="feedbackList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+
+        async function loadDecisions() {
+            const decisionsDiv = document.getElementById('decisionsList');
+            decisionsDiv.innerHTML = '<div class="loading">Loading decisions...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/decisions?limit=10`);
+                const decisions = await response.json();
+
+                if (decisions.length === 0) {
+                    decisionsDiv.innerHTML = '<p style="color: #666;">No decisions yet.</p>';
+                    return;
+                }
+
+                decisionsDiv.innerHTML = decisions.map(decision => `
+                    <div class="decision-item">
+                        <div class="decision-header">
+                            <div class="decision-info">
+                                <div class="decision-id">ID: ${decision.id}</div>
+                                <div class="decision-type">${decision.decision_type}</div>
+                                <div class="decision-agent">Agent: ${decision.agent_id}</div>
+                                <div class="timestamp">${new Date(decision.timestamp).toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div class="feedback-buttons">
+                            <button class="feedback-btn btn-positive" onclick="submitFeedback('${decision.id}', 1.0, 'success')">
+                                👍 Success
+                            </button>
+                            <button class="feedback-btn btn-neutral" onclick="submitFeedback('${decision.id}', 0.0, 'neutral')">
+                                🤷 Neutral
+                            </button>
+                            <button class="feedback-btn btn-negative" onclick="submitFeedback('${decision.id}', -1.0, 'failure')">
+                                👎 Failure
+                            </button>
+                        </div>
+                        <div id="feedback-${decision.id}" class="feedback-list"></div>
+                    </div>
+                `).join('');
+
+                // Load feedback for each decision
+                decisions.forEach(decision => loadDecisionFeedback(decision.id));
+
+                document.getElementById('totalDecisions').textContent = decisions.length;
+
+            } catch (error) {
+                console.error('Error loading decisions:', error);
+                decisionsDiv.innerHTML = '<p style="color: red;">Error loading decisions</p>';
+            }
+        }
+
+        async function loadDecisionFeedback(decisionId) {
+            try {
+                const response = await fetch(`${API_BASE}/decisions/${decisionId}`);
+                const decision = await response.json();
+
+                const feedbackDiv = document.getElementById(`feedback-${decisionId}`);
+                if (decision.feedbacks && decision.feedbacks.length > 0) {
+                    feedbackDiv.innerHTML = decision.feedbacks.map(f => `
+                        <div class="feedback-item">
+                            <span>${f.label}</span>
+                            <span class="feedback-score score-${f.label}">${f.score > 0 ? '+' : ''}${f.score}</span>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading decision feedback:', error);
+            }
+        }
+
+        async function loadFeedback() {
+            const feedbackDiv = document.getElementById('feedbackList');
+            feedbackDiv.innerHTML = '<div class="loading">Loading feedback...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/feedback?limit=20`);
+                const feedbacks = await response.json();
+
+                if (feedbacks.length === 0) {
+                    feedbackDiv.innerHTML = '<p style="color: #666;">No feedback yet.</p>';
+                    return;
+                }
+
+                feedbackDiv.innerHTML = feedbacks.map(f => `
+                    <div class="feedback-item">
+                        <div>
+                            <strong>${f.label}</strong> for decision ${f.decision_id.substring(0, 8)}...
+                            <div class="timestamp">${new Date(f.timestamp).toLocaleString()}</div>
+                            ${f.notes ? `<div style="margin-top: 5px; font-style: italic;">${f.notes}</div>` : ''}
+                        </div>
+                        <span class="feedback-score score-${f.label}">${f.score > 0 ? '+' : ''}${f.score}</span>
+                    </div>
+                `).join('');
+
+                document.getElementById('totalFeedback').textContent = feedbacks.length;
+
+                // Calculate average score
+                const avgScore = feedbacks.reduce((sum, f) => sum + f.score, 0) / feedbacks.length;
+                document.getElementById('avgScore').textContent = avgScore.toFixed(2);
+
+            } catch (error) {
+                console.error('Error loading feedback:', error);
+                feedbackDiv.innerHTML = '<p style="color: red;">Error loading feedback</p>';
+            }
+        }
+
+        async function submitFeedback(decisionId, score, label) {
+            const messageDiv = document.getElementById('message');
+
+            try {
+                const response = await fetch(`${API_BASE}/feedback`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        decision_id: decisionId,
+                        score: score,
+                        label: label,
+                        source: 'dashboard'
+                    })
+                });
+
+                if (response.ok) {
+                    messageDiv.innerHTML = '<div class="success">Feedback submitted successfully!</div>';
+                    setTimeout(() => messageDiv.innerHTML = '', 3000);
+                    loadDecisionFeedback(decisionId);
+                    loadFeedback();
+                } else {
+                    throw new Error('Failed to submit feedback');
+                }
+            } catch (error) {
+                console.error('Error submitting feedback:', error);
+                messageDiv.innerHTML = '<div class="error">Error submitting feedback</div>';
+                setTimeout(() => messageDiv.innerHTML = '', 3000);
+            }
+        }
+
+        // Load data on page load
+        window.addEventListener('load', () => {
+            loadDecisions();
+            loadFeedback();
+
+            // Auto-refresh every 30 seconds
+            setInterval(() => {
+                loadDecisions();
+                loadFeedback();
+            }, 30000);
+        });
+    </script>
+</body>
+</html>
