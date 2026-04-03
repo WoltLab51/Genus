@@ -3,6 +3,7 @@ Error handling middleware for GENUS API.
 """
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 import traceback
@@ -15,6 +16,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
     Middleware to catch all errors and return structured JSON.
     All errors are caught and returned as JSON with error type, message, path, and method.
     Debug mode adds traceback details.
+    HTTPException is re-raised to be handled by FastAPI's default handler.
     """
 
     def __init__(self, app, debug: bool = False):
@@ -25,6 +27,9 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             return response
+        except HTTPException:
+            # Re-raise HTTPException to be handled by FastAPI's default handler
+            raise
         except Exception as exc:
             logger.error(
                 f"Error processing request {request.method} {request.url.path}: {exc}"
