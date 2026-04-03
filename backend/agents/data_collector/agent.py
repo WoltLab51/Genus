@@ -2,10 +2,29 @@ import httpx
 from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
+import ipaddress
+import socket
 from agents.base_agent import BaseAgent
 from models.schemas import DataItem
 
 _ALLOWED_SCHEMES = {"http", "https"}
+_BLOCKED_PREFIXES = ("localhost", "127.", "0.", "169.254.", "::1", "fd", "fc")
+
+
+def _is_safe_host(host: str) -> bool:
+    """Reject loopback, link-local, and private network hosts."""
+    if not host:
+        return False
+    hostname = host.split(":")[0].lower()
+    for prefix in _BLOCKED_PREFIXES:
+        if hostname.startswith(prefix):
+            return False
+    try:
+        addr = ipaddress.ip_address(hostname)
+        return addr.is_global and not addr.is_private and not addr.is_loopback
+    except ValueError:
+        pass
+    return True
 
 
 class DataCollectorAgent(BaseAgent):
@@ -43,6 +62,9 @@ class DataCollectorAgent(BaseAgent):
                 parsed = urlparse(url)
                 if parsed.scheme not in _ALLOWED_SCHEMES or not parsed.netloc:
                     self.logger.error(f"Rejected URL with disallowed scheme/host: {url}")
+                    return None
+                if not _is_safe_host(parsed.hostname or ""):
+                    self.logger.error(f"Rejected request to private/internal host: {url}")
                     return None
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.get(url)
