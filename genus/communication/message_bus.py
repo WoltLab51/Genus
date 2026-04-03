@@ -1,6 +1,6 @@
 """Message bus for agent communication using publish-subscribe pattern."""
 from typing import Dict, List, Callable, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 from dataclasses import dataclass, field
 
@@ -10,7 +10,7 @@ class Message:
     """Message sent through the message bus."""
     topic: str
     data: Dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     sender: Optional[str] = None
 
 

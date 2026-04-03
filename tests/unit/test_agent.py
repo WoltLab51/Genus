@@ -3,7 +3,7 @@ import pytest
 from genus.core.agent import Agent, AgentState
 
 
-class TestAgent(Agent):
+class ConcreteTestAgent(Agent):
     """Concrete agent implementation for testing."""
 
     def __init__(self, agent_id: str):
@@ -21,7 +21,7 @@ class TestAgent(Agent):
 
 async def test_agent_lifecycle():
     """Test agent follows correct lifecycle."""
-    agent = TestAgent("test-agent")
+    agent = ConcreteTestAgent("test-agent")
 
     # Initial state
     assert agent.state == AgentState.CREATED
@@ -44,7 +44,7 @@ async def test_agent_lifecycle():
 
 async def test_agent_cannot_start_before_initialize():
     """Test agent cannot start without initialization."""
-    agent = TestAgent("test-agent")
+    agent = ConcreteTestAgent("test-agent")
 
     with pytest.raises(RuntimeError) as exc_info:
         await agent.start()
@@ -54,7 +54,7 @@ async def test_agent_cannot_start_before_initialize():
 
 async def test_agent_get_status():
     """Test agent status reporting."""
-    agent = TestAgent("test-agent-123")
+    agent = ConcreteTestAgent("test-agent-123")
 
     status = agent.get_status()
     assert status["agent_id"] == "test-agent-123"
