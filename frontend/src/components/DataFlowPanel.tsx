@@ -25,7 +25,7 @@ export default function DataFlowPanel({ events }: { events: Event[] }) {
       ) : (
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {[...flowEvents].reverse().map((event, i) => (
-            <div key={i} className="flex items-start gap-3 text-sm">
+            <div key={`${event.type}-${event.timestamp}-${i}`} className="flex items-start gap-3 text-sm">
               <span className="text-gray-500 font-mono text-xs shrink-0 pt-0.5">
                 {new Date(event.timestamp).toLocaleTimeString()}
               </span>

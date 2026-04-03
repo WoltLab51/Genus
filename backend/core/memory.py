@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from collections import defaultdict
 
@@ -17,7 +17,7 @@ class MemoryStore:
             "action": "set",
             "namespace": namespace,
             "key": key,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
     def get(self, namespace: str, key: str, default: Any = None) -> Any:

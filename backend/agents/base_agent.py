@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from core.logger import get_logger
 from core.memory import memory_store
@@ -13,14 +13,14 @@ class BaseAgent(ABC):
         self.agent_id = agent_id
         self.name = name
         self.status = "idle"
-        self.last_active: datetime | None = None
+        self.last_active: datetime | None = None  # timezone-aware UTC
         self.logger = get_logger(f"agent.{agent_id}")
         self.memory = memory_store
         self.bus = event_bus
 
     async def run(self, payload: Any = None) -> Any:
         self.status = "running"
-        self.last_active = datetime.utcnow()
+        self.last_active = datetime.now(timezone.utc)
         self.logger.info(f"Agent '{self.name}' started")
         try:
             result = await self.execute(payload)

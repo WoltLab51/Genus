@@ -13,7 +13,7 @@ export default function LogViewer({ events }: { events: Event[] }) {
       ) : (
         <div className="space-y-1.5 max-h-64 overflow-y-auto font-mono text-xs">
           {[...events].reverse().map((event, i) => (
-            <div key={i} className="flex gap-2 text-gray-400">
+            <div key={`${event.type}-${event.timestamp}-${i}`} className="flex gap-2 text-gray-400">
               <span className="text-gray-600 shrink-0">
                 {new Date(event.timestamp).toLocaleTimeString()}
               </span>

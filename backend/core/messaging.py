@@ -1,6 +1,6 @@
 import asyncio
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Awaitable
 from .logger import get_logger
 
@@ -22,7 +22,7 @@ class EventBus:
         event = {
             "type": event_type,
             "payload": payload,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         self._event_log.append(event)
         logger.info(f"Publishing event '{event_type}'")

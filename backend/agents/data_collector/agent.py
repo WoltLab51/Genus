@@ -1,8 +1,11 @@
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlparse
 from agents.base_agent import BaseAgent
 from models.schemas import DataItem
+
+_ALLOWED_SCHEMES = {"http", "https"}
 
 
 class DataCollectorAgent(BaseAgent):
@@ -27,7 +30,7 @@ class DataCollectorAgent(BaseAgent):
 
         self.memory.set("data_collector", "last_collection", {
             "count": len(items),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
         await self.bus.publish("data.collected", {"items": [i.model_dump() for i in items]})
@@ -36,8 +39,13 @@ class DataCollectorAgent(BaseAgent):
     async def _fetch(self, source: dict) -> Optional[DataItem]:
         try:
             if source.get("url"):
+                url = source["url"]
+                parsed = urlparse(url)
+                if parsed.scheme not in _ALLOWED_SCHEMES or not parsed.netloc:
+                    self.logger.error(f"Rejected URL with disallowed scheme/host: {url}")
+                    return None
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(source["url"])
+                    resp = await client.get(url)
                     resp.raise_for_status()
                     content = resp.json()
             else:
