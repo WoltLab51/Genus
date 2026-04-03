@@ -4,8 +4,8 @@ from genus.core import Agent, Message
 from genus.communication import MessageBus
 
 
-class TestAgent(Agent):
-    """Test agent implementation."""
+class MockAgent(Agent):
+    """Mock agent implementation for testing."""
 
     def __init__(self, agent_id: str, message_bus: MessageBus):
         super().__init__(agent_id, message_bus)
@@ -19,7 +19,7 @@ class TestAgent(Agent):
 async def test_agent_creation():
     """Test creating an agent."""
     message_bus = MessageBus()
-    agent = TestAgent("test-agent-1", message_bus)
+    agent = MockAgent("test-agent-1", message_bus)
 
     assert agent.agent_id == "test-agent-1"
     assert agent.message_bus == message_bus
@@ -29,7 +29,7 @@ async def test_agent_creation():
 async def test_agent_subscription():
     """Test agent subscribing to topics."""
     message_bus = MessageBus()
-    agent = TestAgent("test-agent-1", message_bus)
+    agent = MockAgent("test-agent-1", message_bus)
 
     agent.subscribe("test.topic")
 
@@ -40,7 +40,7 @@ async def test_agent_subscription():
 async def test_agent_message_handling():
     """Test agent receiving and handling messages."""
     message_bus = MessageBus()
-    agent = TestAgent("test-agent-1", message_bus)
+    agent = MockAgent("test-agent-1", message_bus)
 
     agent.subscribe("test.topic")
 
@@ -57,8 +57,8 @@ async def test_agent_message_handling():
 async def test_agent_publishing():
     """Test agent publishing messages."""
     message_bus = MessageBus()
-    agent1 = TestAgent("agent-1", message_bus)
-    agent2 = TestAgent("agent-2", message_bus)
+    agent1 = MockAgent("agent-1", message_bus)
+    agent2 = MockAgent("agent-2", message_bus)
 
     agent2.subscribe("test.publish")
 

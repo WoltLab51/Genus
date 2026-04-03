@@ -1,11 +1,13 @@
 """Database models for GENUS system."""
 from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import DeclarativeBase, relationship
 from datetime import datetime
 import uuid
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Base class for all models."""
+    pass
 
 
 class Decision(Base):
@@ -18,7 +20,7 @@ class Decision(Base):
     input_data = Column(Text, nullable=True)  # JSON serialized
     output_data = Column(Text, nullable=True)  # JSON serialized
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
-    metadata = Column(Text, nullable=True)  # Additional context as JSON
+    meta_data = Column(Text, nullable=True)  # Additional context as JSON
 
     # Relationship to feedback
     feedbacks = relationship("Feedback", back_populates="decision", cascade="all, delete-orphan")

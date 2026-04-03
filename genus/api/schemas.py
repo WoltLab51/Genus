@@ -52,7 +52,7 @@ class DecisionResponse(BaseModel):
     timestamp: datetime
     input_data: Optional[str] = None
     output_data: Optional[str] = None
-    metadata: Optional[str] = None
+    meta_data: Optional[str] = None
 
     class Config:
         from_attributes = True

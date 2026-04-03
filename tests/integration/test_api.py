@@ -1,13 +1,14 @@
 """Integration tests for the feedback API."""
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from genus.api.app import app
 
 
 @pytest.fixture
 async def client():
     """Create an async test client."""
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
 

@@ -38,7 +38,7 @@ class MemoryStore:
                 decision_type=decision_type,
                 input_data=json.dumps(input_data) if input_data else None,
                 output_data=json.dumps(output_data) if output_data else None,
-                metadata=json.dumps(metadata) if metadata else None
+                meta_data=json.dumps(metadata) if metadata else None
             )
             session.add(decision)
             await session.commit()
