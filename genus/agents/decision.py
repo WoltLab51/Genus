@@ -7,7 +7,8 @@ Simple agent that makes decisions based on analyzed data.
 from genus.core.agent import Agent, AgentState
 from genus.communication.message_bus import MessageBus, Message, MessagePriority
 from genus.utils.logger import get_logger
-from typing import Optional
+from typing import Optional, Dict
+import uuid
 
 
 class DecisionAgent(Agent):
@@ -18,6 +19,7 @@ class DecisionAgent(Agent):
     - Subscribing to analysis topics
     - Making decisions
     - Publishing decision results
+    - Tracking decisions and feedback
     """
 
     def __init__(
@@ -39,7 +41,8 @@ class DecisionAgent(Agent):
         self._logger = get_logger(f"{self.__class__.__name__}.{self.id}")
         self._running = False
         self._decision_count = 0
-        self._decisions = []
+        self._decisions: Dict[str, dict] = {}  # decision_id -> decision data
+        self._feedback: Dict[str, dict] = {}  # decision_id -> feedback data
 
     async def initialize(self) -> None:
         """Initialize the decision agent."""
@@ -53,6 +56,14 @@ class DecisionAgent(Agent):
                 self.process_message
             )
             self._logger.info(f"Subscribed to 'data.analyzed'")
+
+            # Subscribe to decision.feedback topic
+            self._message_bus.subscribe(
+                "decision.feedback",
+                self.id,
+                self.process_feedback
+            )
+            self._logger.info(f"Subscribed to 'decision.feedback'")
 
         self._transition_state(AgentState.INITIALIZED)
 
@@ -84,8 +95,12 @@ class DecisionAgent(Agent):
         # Extract analysis from payload
         analysis = message.payload.get("analysis", {})
 
+        # Generate unique decision ID
+        decision_id = str(uuid.uuid4())
+
         # Make a simple decision based on the analysis
         decision = {
+            "decision_id": decision_id,
             "analysis_summary": analysis.get("summary"),
             "temperature_status": analysis.get("temperature_status"),
             "humidity_status": analysis.get("humidity_status"),
@@ -94,8 +109,8 @@ class DecisionAgent(Agent):
         }
 
         self._decision_count += 1
-        self._decisions.append(decision)
-        self._logger.info(f"Decision #{self._decision_count} made: {decision['action']}")
+        self._decisions[decision_id] = decision
+        self._logger.info(f"Decision #{self._decision_count} (ID: {decision_id[:8]}...) made: {decision['action']}")
 
         # Publish decision
         if self._message_bus:
@@ -132,6 +147,27 @@ class DecisionAgent(Agent):
         else:
             return "maintain_current_settings"
 
+    async def process_feedback(self, message: Message) -> None:
+        """
+        Process feedback for a decision.
+
+        Args:
+            message: The feedback message
+        """
+        feedback_data = message.payload
+        decision_id = feedback_data.get("decision_id")
+        outcome = feedback_data.get("outcome")
+
+        if decision_id in self._decisions:
+            self._feedback[decision_id] = feedback_data
+            decision = self._decisions[decision_id]
+            self._logger.info(
+                f"Received feedback for decision {decision_id[:8]}...: "
+                f"action='{decision['action']}', outcome='{outcome}'"
+            )
+        else:
+            self._logger.warning(f"Received feedback for unknown decision {decision_id}")
+
     def get_stats(self) -> dict:
         """
         Get decision agent statistics.
@@ -139,8 +175,35 @@ class DecisionAgent(Agent):
         Returns:
             Dictionary of statistics
         """
+        # Get last decision
+        last_decision = None
+        if self._decisions:
+            last_decision_id = list(self._decisions.keys())[-1]
+            last_decision = self._decisions[last_decision_id].copy()
+            # Add feedback if available
+            if last_decision_id in self._feedback:
+                last_decision["feedback"] = self._feedback[last_decision_id]
+
         return {
             "decision_count": self._decision_count,
+            "feedback_count": len(self._feedback),
             "state": self.state.value,
-            "last_decision": self._decisions[-1] if self._decisions else None,
+            "last_decision": last_decision,
         }
+
+    def get_decisions_with_feedback(self) -> list:
+        """
+        Get all decisions with their feedback.
+
+        Returns:
+            List of decisions with feedback
+        """
+        result = []
+        for decision_id, decision in self._decisions.items():
+            entry = decision.copy()
+            if decision_id in self._feedback:
+                entry["feedback"] = self._feedback[decision_id]
+            else:
+                entry["feedback"] = None
+            result.append(entry)
+        return result
