@@ -26,6 +26,8 @@ class DecisionAgent(Agent):
             "action": action
         }
 
+        print(f"[Decision] Decision: {decision} → {action}")
+
         await self.message_bus.publish(
             topic="decision.made",
             data=result
