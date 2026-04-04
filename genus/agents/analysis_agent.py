@@ -19,7 +19,7 @@ class AnalysisAgent(Agent):
             "temperature": temperature,
             "classification": classification
         }
-
+        print(f"[Analysis] Temperature: {temperature} → {classification}")
         await self.message_bus.publish(
             topic="data.analyzed",
             data=result
