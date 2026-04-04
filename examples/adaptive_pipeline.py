@@ -1,11 +1,10 @@
 """
-Simple Pipeline Example
+Adaptive Pipeline Example
 
-Demonstrates a minimal working pipeline using the GENUS architecture:
-- DataCollector generates mock data
-- Analysis processes the data
-- Decision makes a simple decision based on the analysis
-- Feedback simulates feedback for the decision (success/failure)
+Demonstrates adaptive decision-making based on feedback:
+- DecisionAgent learns from feedback over multiple iterations
+- Actions with higher success rates are preferred
+- Success rates are tracked and logged
 """
 
 import asyncio
@@ -17,14 +16,14 @@ from genus.utils.logger import setup_logging, get_logger
 
 
 async def main():
-    """Run the simple pipeline."""
+    """Run the adaptive pipeline with multiple iterations."""
     # Setup
     config = Config()
     setup_logging(level="INFO")
     logger = get_logger(__name__)
 
     logger.info("=" * 60)
-    logger.info("Starting GENUS Simple Pipeline")
+    logger.info("Starting GENUS Adaptive Pipeline")
     logger.info("=" * 60)
 
     # Create message bus
@@ -49,27 +48,38 @@ async def main():
     feedback = FeedbackAgent(
         name="FeedbackAgent",
         message_bus=message_bus,
-        success_rate=0.7
+        success_rate=0.5  # Lower success rate to see adaptation
     )
 
     # Create lifecycle manager
     lifecycle = Lifecycle()
-    lifecycle.register_agent(analysis)  # Register analysis first (subscriber)
-    lifecycle.register_agent(decision)   # Register decision second (subscriber)
-    lifecycle.register_agent(feedback)   # Register feedback third (subscriber)
-    lifecycle.register_agent(data_collector)  # Register data collector last (publisher)
+    lifecycle.register_agent(analysis)
+    lifecycle.register_agent(decision)
+    lifecycle.register_agent(feedback)
 
     # Initialize all agents (this sets up subscriptions)
     logger.info("\n--- Initializing Agents ---")
     await lifecycle.start_all()
 
-    # Wait a moment to ensure all agents are running and message processing completes
-    logger.info("\n--- Running Pipeline ---")
-    await asyncio.sleep(2)
+    # Run multiple iterations to demonstrate learning
+    num_iterations = 5
+    logger.info(f"\n--- Running {num_iterations} Iterations ---")
+
+    for iteration in range(1, num_iterations + 1):
+        logger.info(f"\n=== Iteration {iteration}/{num_iterations} ===")
+
+        # Manually trigger data collection for each iteration
+        await data_collector.start()
+
+        # Wait for messages to process
+        await asyncio.sleep(1)
+
+    # Wait a bit more to ensure all feedback is processed
+    await asyncio.sleep(1)
 
     # Print statistics
     logger.info("\n" + "=" * 60)
-    logger.info("Pipeline Statistics")
+    logger.info("Final Pipeline Statistics")
     logger.info("=" * 60)
     logger.info(f"DataCollector: {data_collector.get_stats()}")
     logger.info(f"AnalysisAgent: {analysis.get_stats()}")
@@ -78,7 +88,7 @@ async def main():
     logger.info(f"DecisionAgent: decision_count={decision_stats['decision_count']}, "
                 f"feedback_count={decision_stats['feedback_count']}")
 
-    # Print action success rates if available
+    # Print action success rates
     if decision_stats.get('action_success_rates'):
         logger.info("\n--- Action Success Rates ---")
         for action, stats in decision_stats['action_success_rates'].items():
@@ -89,26 +99,19 @@ async def main():
 
     logger.info(f"\nFeedbackAgent: {feedback.get_stats()}")
 
-    # Print message history
-    logger.info("\n--- Message Flow ---")
-    messages = message_bus.get_message_history()
-    for i, msg in enumerate(messages, 1):
-        logger.info(f"{i}. Topic: {msg.topic}, Sender: {msg.sender_id[:8]}...")
-
     # Print decisions with feedback
-    logger.info("\n--- Decisions with Feedback ---")
+    logger.info("\n--- All Decisions with Feedback ---")
     decisions_with_feedback = decision.get_decisions_with_feedback()
     for i, dec in enumerate(decisions_with_feedback, 1):
-        logger.info(f"{i}. Decision ID: {dec['decision_id'][:8]}...")
-        logger.info(f"   Action: {dec['action']}")
-        logger.info(f"   Feedback: {dec.get('feedback', {}).get('outcome', 'N/A')}")
+        feedback_outcome = dec.get('feedback', {}).get('outcome', 'N/A')
+        logger.info(f"{i}. Action: {dec['action']}, Feedback: {feedback_outcome}")
 
     # Cleanup
     logger.info("\n--- Stopping Agents ---")
     await lifecycle.stop_all()
 
     logger.info("\n" + "=" * 60)
-    logger.info("Pipeline completed successfully!")
+    logger.info("Adaptive pipeline completed successfully!")
     logger.info("=" * 60)
 
 

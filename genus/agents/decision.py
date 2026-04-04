@@ -43,6 +43,7 @@ class DecisionAgent(Agent):
         self._decision_count = 0
         self._decisions: Dict[str, dict] = {}  # decision_id -> decision data
         self._feedback: Dict[str, dict] = {}  # decision_id -> feedback data
+        self._action_stats: Dict[str, Dict[str, int]] = {}  # action -> {success: n, failure: n}
 
     async def initialize(self) -> None:
         """Initialize the decision agent."""
@@ -125,7 +126,7 @@ class DecisionAgent(Agent):
 
     def _determine_action(self, analysis: dict) -> str:
         """
-        Determine action based on analysis.
+        Determine action based on analysis and past feedback.
 
         Args:
             analysis: The analysis data
@@ -136,16 +137,85 @@ class DecisionAgent(Agent):
         temp_status = analysis.get("temperature_status", "unknown")
         humidity_status = analysis.get("humidity_status", "unknown")
 
+        # Determine candidate actions based on current conditions
+        candidate_actions = []
+
         if temp_status == "cold":
-            return "increase_heating"
+            candidate_actions.append("increase_heating")
         elif temp_status == "warm":
-            return "increase_cooling"
-        elif humidity_status == "dry":
-            return "increase_humidifier"
+            candidate_actions.append("increase_cooling")
+
+        if humidity_status == "dry":
+            candidate_actions.append("increase_humidifier")
         elif humidity_status == "humid":
-            return "increase_dehumidifier"
+            candidate_actions.append("increase_dehumidifier")
+
+        # Always consider maintaining current settings as an option
+        candidate_actions.append("maintain_current_settings")
+
+        # If we have feedback history, use it to select the best action
+        if self._action_stats:
+            selected_action = self._select_action_by_success_rate(candidate_actions)
+            return selected_action
         else:
-            return "maintain_current_settings"
+            # No feedback yet, use default logic (first candidate)
+            return candidate_actions[0]
+
+    def _select_action_by_success_rate(self, candidate_actions: list) -> str:
+        """
+        Select the best action from candidates based on success rates.
+
+        Args:
+            candidate_actions: List of possible actions
+
+        Returns:
+            Selected action
+        """
+        best_action = None
+        best_score = -1
+        feedback_influenced = False
+
+        for action in candidate_actions:
+            if action in self._action_stats:
+                stats = self._action_stats[action]
+                total = stats["success"] + stats["failure"]
+                if total > 0:
+                    # Success rate with a slight bonus for more data (confidence)
+                    success_rate = stats["success"] / total
+                    # Add small confidence bonus (up to 0.1) for more samples
+                    confidence_bonus = min(0.1, total / 100)
+                    score = success_rate + confidence_bonus
+                    feedback_influenced = True
+                else:
+                    score = 0.5  # Neutral score for untried actions
+            else:
+                score = 0.5  # Neutral score for untried actions
+
+            if score > best_score:
+                best_score = score
+                best_action = action
+
+        # If no action was found (shouldn't happen), default to first
+        if best_action is None:
+            best_action = candidate_actions[0]
+
+        # Log when feedback influences the decision
+        if feedback_influenced:
+            action_rates = []
+            for action in candidate_actions:
+                if action in self._action_stats:
+                    stats = self._action_stats[action]
+                    total = stats["success"] + stats["failure"]
+                    if total > 0:
+                        rate = stats["success"] / total
+                        action_rates.append(f"{action}={rate:.2%}")
+
+            self._logger.info(
+                f"Decision influenced by feedback: selected '{best_action}' "
+                f"(rates: {', '.join(action_rates)})"
+            )
+
+        return best_action
 
     async def process_feedback(self, message: Message) -> None:
         """
@@ -161,9 +231,25 @@ class DecisionAgent(Agent):
         if decision_id in self._decisions:
             self._feedback[decision_id] = feedback_data
             decision = self._decisions[decision_id]
+            action = decision["action"]
+
+            # Update action statistics
+            if action not in self._action_stats:
+                self._action_stats[action] = {"success": 0, "failure": 0}
+
+            if outcome == "success":
+                self._action_stats[action]["success"] += 1
+            else:
+                self._action_stats[action]["failure"] += 1
+
+            # Calculate success rate
+            total = self._action_stats[action]["success"] + self._action_stats[action]["failure"]
+            success_rate = self._action_stats[action]["success"] / total if total > 0 else 0
+
             self._logger.info(
                 f"Received feedback for decision {decision_id[:8]}...: "
-                f"action='{decision['action']}', outcome='{outcome}'"
+                f"action='{action}', outcome='{outcome}', "
+                f"success_rate={success_rate:.2%} ({self._action_stats[action]['success']}/{total})"
             )
         else:
             self._logger.warning(f"Received feedback for unknown decision {decision_id}")
@@ -184,11 +270,25 @@ class DecisionAgent(Agent):
             if last_decision_id in self._feedback:
                 last_decision["feedback"] = self._feedback[last_decision_id]
 
+        # Calculate action success rates
+        action_success_rates = {}
+        for action, stats in self._action_stats.items():
+            total = stats["success"] + stats["failure"]
+            if total > 0:
+                success_rate = stats["success"] / total
+                action_success_rates[action] = {
+                    "success_rate": success_rate,
+                    "success": stats["success"],
+                    "failure": stats["failure"],
+                    "total": total
+                }
+
         return {
             "decision_count": self._decision_count,
             "feedback_count": len(self._feedback),
             "state": self.state.value,
             "last_decision": last_decision,
+            "action_success_rates": action_success_rates,
         }
 
     def get_decisions_with_feedback(self) -> list:
