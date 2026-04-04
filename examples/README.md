@@ -1,26 +1,30 @@
 # Simple Pipeline Example
 
-This example demonstrates a minimal working pipeline using the GENUS architecture.
+This example demonstrates a minimal working pipeline using the GENUS architecture with a feedback loop.
 
 ## Overview
 
-The pipeline consists of three agents that communicate via the MessageBus:
+The pipeline consists of four agents that communicate via the MessageBus:
 
 1. **DataCollectorAgent** - Generates and publishes mock sensor data
 2. **AnalysisAgent** - Analyzes the collected data
-3. **DecisionAgent** - Makes decisions based on the analysis
+3. **DecisionAgent** - Makes decisions based on the analysis and tracks feedback
+4. **FeedbackAgent** - Simulates feedback for decisions (success/failure)
 
 ## Message Flow
 
 ```
 DataCollector → [data.collected] → Analysis → [data.analyzed] → Decision → [decision.made]
+                                                                      ↓
+                                            Feedback ← [decision.feedback]
 ```
 
 ### Message Types
 
 - **data.collected** - Raw sensor data (temperature, humidity, pressure)
 - **data.analyzed** - Analysis results with status classifications
-- **decision.made** - Action decisions based on analysis
+- **decision.made** - Action decisions based on analysis (includes decision_id)
+- **decision.feedback** - Feedback on decision outcomes (success/failure)
 
 ## Running the Pipeline
 
@@ -35,15 +39,19 @@ python examples/simple_pipeline.py
 ## Expected Output
 
 The pipeline will:
-1. Initialize all three agents
+1. Initialize all four agents
 2. DataCollector publishes mock sensor data
 3. AnalysisAgent receives and analyzes the data
 4. DecisionAgent receives analysis and makes a decision
-5. Display statistics showing:
+5. FeedbackAgent simulates feedback for the decision
+6. DecisionAgent receives and logs the feedback
+7. Display statistics showing:
    - Number of data points collected
    - Number of analyses performed
    - Number of decisions made
+   - Number of feedback messages received
    - Message flow history
+   - Decisions with their feedback outcomes
 
 ## Architecture Highlights
 
@@ -53,6 +61,7 @@ This example demonstrates:
 - **MessageBus communication** - Agents communicate only via the message bus
 - **Lifecycle management** - Coordinated agent initialization and shutdown
 - **Observable system** - Message history provides full traceability
+- **Feedback loop** - Decisions are tracked and linked to feedback
 - **Extensibility** - Easy to add new agents or message types
 
 ## Code Structure
@@ -61,11 +70,28 @@ This example demonstrates:
 genus/agents/
   ├── data_collector.py   # Collects and publishes data
   ├── analysis.py         # Analyzes collected data
-  └── decision.py         # Makes decisions from analysis
+  ├── decision.py         # Makes decisions from analysis, tracks feedback
+  └── feedback.py         # Simulates feedback for decisions
 
 examples/
   └── simple_pipeline.py  # Pipeline runner script
 ```
+
+## Feedback Loop
+
+The feedback loop demonstrates a basic mechanism for learning:
+
+1. **Decision Tracking**: Each decision gets a unique ID and is stored in memory
+2. **Feedback Simulation**: FeedbackAgent simulates outcomes (success/failure) based on:
+   - Random probability (70% success rate by default)
+   - Action type (e.g., "maintain_current_settings" has 90% success)
+3. **Feedback Storage**: DecisionAgent links feedback to decisions using decision_id
+4. **Observability**: Decisions and their feedback are available for inspection
+
+This creates a foundation for future learning mechanisms where agents could:
+- Adjust their decision-making based on past feedback
+- Track success rates for different action types
+- Learn optimal strategies over time
 
 ## Key Concepts
 
