@@ -79,19 +79,40 @@ examples/
 
 ## Feedback Loop
 
-The feedback loop demonstrates a basic mechanism for learning:
+The feedback loop demonstrates adaptive decision-making through learning:
 
 1. **Decision Tracking**: Each decision gets a unique ID and is stored in memory
 2. **Feedback Simulation**: FeedbackAgent simulates outcomes (success/failure) based on:
    - Random probability (70% success rate by default)
    - Action type (e.g., "maintain_current_settings" has 90% success)
 3. **Feedback Storage**: DecisionAgent links feedback to decisions using decision_id
-4. **Observability**: Decisions and their feedback are available for inspection
+4. **Success Rate Tracking**: Statistics are maintained for each action type:
+   - Number of successes
+   - Number of failures
+   - Overall success rate
+5. **Adaptive Decision-Making**: DecisionAgent adjusts its behavior based on feedback:
+   - When multiple actions are viable, it selects the one with the highest success rate
+   - Actions with poor feedback history are avoided
+   - Logs show when decisions are "influenced by feedback"
+6. **Observability**: Decisions, feedback, and success rates are available for inspection
 
-This creates a foundation for future learning mechanisms where agents could:
-- Adjust their decision-making based on past feedback
-- Track success rates for different action types
-- Learn optimal strategies over time
+### Adaptive Behavior Example
+
+```
+Iteration 1: No feedback history → Uses default logic
+Iteration 2: Has feedback → "Decision influenced by feedback: selected 'maintain_current_settings' (rates: maintain_current_settings=100.00%)"
+Iteration 3+: Continues to adapt based on accumulating feedback
+```
+
+### Running the Adaptive Pipeline
+
+To see the adaptive behavior over multiple iterations:
+
+```bash
+python examples/adaptive_pipeline.py
+```
+
+This will run 5 iterations and show how the DecisionAgent learns to prefer actions with higher success rates.
 
 ## Key Concepts
 
