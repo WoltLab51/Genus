@@ -14,8 +14,8 @@
 | **Recorder-Whitelist** | Nur explizit freigegebene Topics werden persistiert (kein Opt-out vergessen) | `genus/agents/event_recorder_agent.py`: `DEFAULT_RECORD_TOPICS` |
 | **Keine Rohdaten-Persistenz** | `data.collected` ist nicht in der Standard-Whitelist – Rohdaten werden nie automatisch gespeichert | Explizite Entscheidung in `DEFAULT_RECORD_TOPICS` |
 | **Filename-Sanitierung** | `run_id` wird vor Dateizugriff sanitiert; Path-Traversal-Sequenzen (`..`) werfen `ValueError` | `genus/memory/jsonl_event_store.py`: `sanitize_run_id()` |
-| **API-Key-Authentifizierung** | Alle Endpunkte außer `/health` verlangen `Authorization: Bearer <key>` | `genus/api/middleware.py` |
-| **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (außer Debug-Mode) | `genus/api/errors.py` |
+| **API-Key-Authentifizierung** | Alle Endpunkte außer `/health` verlangen `Authorization: Bearer <key>` | 🔜 Geplant – `genus/api/middleware.py` (noch nicht implementiert) |
+| **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (außer Debug-Mode) | 🔜 Geplant – `genus/api/errors.py` (noch nicht implementiert) |
 | **Append-only EventStore** | Events können nicht mutiert oder gelöscht werden – manipulationssicheres Audit-Log | `genus/memory/jsonl_event_store.py` |
 
 ---
