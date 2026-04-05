@@ -141,7 +141,50 @@ grep '"decision": "escalate"' var/events/*.jsonl
 
 ---
 
-## 5. Tests ausführen
+## 5. Outcome per CLI einspeisen
+
+Mit dem CLI-Producer kann ein Operator ein `outcome.recorded`-Event manuell
+auf den MessageBus veröffentlichen. Die Persistenz übernimmt der
+`EventRecorderAgent` (ist standardmäßig für `outcome.recorded` abonniert).
+
+### Grundaufruf
+
+```bash
+python -m genus.cli.outcome \
+    --run-id  2026-04-05T15-30-00__analyze__abc123 \
+    --outcome good \
+    --score-delta 1.0
+```
+
+### Mit optionalen Feldern
+
+```bash
+python -m genus.cli.outcome \
+    --run-id       2026-04-05T15-30-00__analyze__abc123 \
+    --outcome      bad \
+    --score-delta  -2.5 \
+    --notes        "Ergebnis nicht verwertbar – fehlende Sensordaten" \
+    --source       user \
+    --timestamp    2026-04-05T17:00:00+00:00
+```
+
+### Parameter
+
+| Parameter | Pflicht | Default | Beschreibung |
+|---|---|---|---|
+| `--run-id` | ✅ Ja | – | Run-ID (in `Message.metadata["run_id"]`) |
+| `--outcome` | ✅ Ja | – | `good` \| `bad` \| `unknown` |
+| `--score-delta` | ✅ Ja | – | Float; wird auf `[-10.0, 10.0]` geclampt |
+| `--notes` | ❌ Nein | – | Optionaler Freitext; max. 256 Zeichen |
+| `--source` | ❌ Nein | `user` | Wer das Outcome liefert; max. 64 Zeichen |
+| `--timestamp` | ❌ Nein | `now()` UTC | ISO-8601-String; wird automatisch gesetzt wenn nicht angegeben |
+
+> **Hinweis:** Das CLI schreibt keine Dateien direkt. Die Persistenz läuft
+> ausschließlich über den `EventRecorderAgent`.
+
+---
+
+## 6. Tests ausführen
 
 ```bash
 # Alle Tests
@@ -156,7 +199,7 @@ python -m pytest tests/ --cov=genus --cov-report=term-missing
 
 ---
 
-## 6. Monitoring-Hinweise
+## 7. Monitoring-Hinweise
 
 | Signal | Bedeutung | Aktion |
 |---|---|---|
