@@ -68,9 +68,11 @@ class Orchestrator:
         self,
         bus: MessageBus,
         sender_id: str = "Orchestrator",
+        tool_timeout_s: float = 30.0,
     ) -> None:
         self._bus = bus
         self._sender_id = sender_id
+        self._tool_timeout_s = tool_timeout_s
         # Maps step_id -> Future[Message] for pending tool calls.
         # Keyed by run_id so concurrent runs don't interfere.
         self._pending: Dict[str, Dict[str, "asyncio.Future[Message]"]] = {}
@@ -140,7 +142,7 @@ class Orchestrator:
 
         # Build internal Step objects with UUID IDs; futures are created here
         # inside the running coroutine so they are bound to the correct loop.
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         step_objects: List[_Step] = [
             _Step(
                 step_id=str(uuid.uuid4()),
@@ -210,8 +212,24 @@ class Orchestrator:
             )
         )
 
-        # Wait for response (succeeded or failed)
-        response: Message = await step.future
+        # Wait for response (succeeded or failed), with timeout guard.
+        try:
+            response: Message = await asyncio.wait_for(
+                step.future, timeout=self._tool_timeout_s
+            )
+        except asyncio.TimeoutError:
+            await self._bus.publish(
+                run_step_failed_message(
+                    run_id,
+                    sender_id,
+                    step.step_id,
+                    payload={"error": "timeout"},
+                )
+            )
+            raise _StepFailed(
+                f"Step {step.step_id!r} ({step.tool_name!r}) timed out"
+                f" after {self._tool_timeout_s}s"
+            )
 
         if response.topic == tool_topics.TOOL_CALL_SUCCEEDED:
             await self._bus.publish(
@@ -248,14 +266,17 @@ class Orchestrator:
         ) else None
 
         if run_id is None or step_id is None:
+            # Malformed response – missing correlation fields; drop silently.
             return
 
         run_futures = self._pending.get(run_id)
         if run_futures is None:
+            # Response arrived for an unknown or already-completed run; drop.
             return
 
         future = run_futures.get(step_id)
         if future is None or future.done():
+            # Late or duplicate response; drop silently.
             return
 
         future.set_result(message)

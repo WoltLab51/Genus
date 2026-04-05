@@ -368,3 +368,82 @@ class TestNoMutation:
         # original_args must be untouched
         assert original_args == {"message": "immutable"}
         assert steps[0]["tool_args"] == {"message": "immutable"}
+
+
+# ---------------------------------------------------------------------------
+# Timeout path
+# ---------------------------------------------------------------------------
+
+class TestOrchestratorTimeout:
+
+    async def test_timeout_raises_runtime_error(self):
+        """Without any executor the Orchestrator must time out, not hang."""
+        bus = MessageBus()
+        orc = Orchestrator(bus, tool_timeout_s=0.05)
+        await orc.initialize()
+
+        with pytest.raises(RuntimeError):
+            await orc.run(
+                "timeout-test",
+                steps=[{"tool_name": "echo", "tool_args": {"message": "hi"}}],
+            )
+
+    async def test_timeout_publishes_step_failed_and_run_failed(self):
+        """On timeout, run.step.failed and run.failed must appear in history."""
+        bus = MessageBus()
+        orc = Orchestrator(bus, tool_timeout_s=0.05)
+        await orc.initialize()
+
+        with pytest.raises(RuntimeError):
+            await orc.run(
+                "timeout-events",
+                steps=[{"tool_name": "echo", "tool_args": {"message": "hi"}}],
+            )
+
+        history = bus.get_message_history(limit=200)
+        topics_seen = [m.topic for m in history]
+
+        assert run_topics.RUN_STEP_FAILED in topics_seen
+        assert run_topics.RUN_FAILED in topics_seen
+        assert run_topics.RUN_COMPLETED not in topics_seen
+
+    async def test_timeout_step_failed_contains_error_payload(self):
+        """The run.step.failed event emitted on timeout must carry error='timeout'."""
+        bus = MessageBus()
+        orc = Orchestrator(bus, tool_timeout_s=0.05)
+        await orc.initialize()
+
+        with pytest.raises(RuntimeError):
+            await orc.run(
+                "timeout-payload",
+                steps=[{"tool_name": "echo", "tool_args": {}}],
+            )
+
+        history = bus.get_message_history(limit=200)
+        step_failed = [m for m in history if m.topic == run_topics.RUN_STEP_FAILED]
+        assert len(step_failed) >= 1
+        assert step_failed[0].payload.get("error") == "timeout"
+
+    async def test_timeout_run_id_in_failure_events(self):
+        """run_id must be attached on all failure events emitted after a timeout."""
+        bus = MessageBus()
+        orc = Orchestrator(bus, tool_timeout_s=0.05)
+        await orc.initialize()
+
+        with pytest.raises(RuntimeError):
+            await orc.run(
+                "timeout-run-id",
+                steps=[{"tool_name": "echo", "tool_args": {}}],
+            )
+
+        history = bus.get_message_history(limit=200)
+        started = [m for m in history if m.topic == run_topics.RUN_STARTED]
+        assert len(started) >= 1
+        run_id = get_run_id(started[-1])
+
+        failure_topics = {run_topics.RUN_STEP_FAILED, run_topics.RUN_FAILED}
+        for msg in history:
+            if msg.topic in failure_topics:
+                assert get_run_id(msg) == run_id, (
+                    f"run_id missing on {msg.topic!r} after timeout"
+                )
