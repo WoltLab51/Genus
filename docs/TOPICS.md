@@ -14,8 +14,8 @@ Alle Topics, die im GENUS-MessageBus verwendet werden, sind hier dokumentiert. J
 | `analysis.completed` | `AnalysisAgent` | `QualityAgent` | `classification`, `confidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `quality.scored` | `QualityAgent` | `DecisionAgent` | `quality_score`, `dimensions`, `evidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `decision.made` | `DecisionAgent` | Downstream / API / Monitoring | `decision`, `reason`, `quality_score`, `min_quality`, `attempt`, `max_retries`, `critical` | ✅ Ja | ✅ Ja (Whitelist) |
-| `outcome.recorded` | *Geplant* | `DecisionAgent` (Feedback-Loop) | `outcome`, `run_id`, `score_delta` | ✅ Ja | ✅ Ja (Whitelist) – *wenn vorhanden* |
-| `data.sanitized` | `DataSanitizerAgent` | `AnalysisAgent`, EventRecorder | `source`, `data`, `evidence` (inkl. `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy`) | ✅ Ja | ✅ Ja (nach P1-C, noch nicht in Default-Whitelist) |
+| `outcome.recorded` | Operator / externer Producer | `DecisionAgent` (Feedback-Loop, geplant) | `outcome`, `run_id`, `score_delta` | ✅ Ja | ✅ Ja (Default-Whitelist) |
+| `data.sanitized` | `DataSanitizerAgent` | `AnalysisAgent`, EventRecorder | `source`, `data`, `evidence` (inkl. `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy`) | ✅ Ja | ⚙️ Opt-in (nicht in Default-Whitelist, siehe §2.1) |
 | `data.analyzed` | `AnalysisAgent` (Legacy) | `QualityAgent` (Legacy-Alias) | `classification` | ✅ Ja | ❌ Nein (veraltet, ersetzt durch `analysis.completed`) |
 
 ---
@@ -29,7 +29,7 @@ DEFAULT_RECORD_TOPICS = [
     "analysis.completed",   # Analyse-Ergebnis
     "quality.scored",       # Qualitätsbewertung
     "decision.made",        # Entscheidung + Begründung
-    "outcome.recorded",     # (optional) Ergebnis-Feedback (sobald vorhanden)
+    "outcome.recorded",     # Ergebnis-Feedback
 ]
 ```
 
@@ -42,6 +42,34 @@ recorder = EventRecorderAgent(
     record_topics=["analysis.completed", "quality.scored", "decision.made"]
 )
 ```
+
+### 2.1 `data.sanitized` – Opt-in Persistenz (P1-C2)
+
+`data.sanitized` ist **persistierbar**, aber **nicht** in der Default-Whitelist, da
+bereingte Daten je nach Policy noch sensible Felder enthalten können. Operatoren können
+die Persistenz explizit aktivieren:
+
+**Option A – Konstruktor-Argument:**
+
+```python
+from genus.agents.event_recorder_agent import DEFAULT_RECORD_TOPICS, EventRecorderAgent
+
+recorder = EventRecorderAgent(
+    message_bus=bus,
+    event_store=store,
+    record_topics=[*DEFAULT_RECORD_TOPICS, "data.sanitized"],
+)
+```
+
+**Option B – Umgebungsvariable** (ohne Codeänderung):
+
+```bash
+GENUS_RECORD_TOPICS=analysis.completed,quality.scored,decision.made,outcome.recorded,data.sanitized
+```
+
+> **Hinweis:** Die Umgebungsvariable `GENUS_RECORD_TOPICS` wird nur ausgewertet, wenn
+> `record_topics` **nicht** explizit übergeben wird. Explizite Argumente haben immer
+> Vorrang. Enthält die Variable keine Einträge, greift wieder `DEFAULT_RECORD_TOPICS`.
 
 ---
 

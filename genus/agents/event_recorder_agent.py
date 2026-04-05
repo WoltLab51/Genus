@@ -10,6 +10,24 @@ Default whitelisted topics:
 Raw data topics (e.g. ``data.collected``) are intentionally **not** in the
 default whitelist to avoid persisting sensitive or large payloads.
 
+``data.sanitized`` is **not** in the default whitelist either.  Operators can
+opt in by passing it via the ``record_topics`` constructor argument or via
+the ``GENUS_RECORD_TOPICS`` environment variable:
+
+    .. code-block:: python
+
+        from genus.agents.event_recorder_agent import DEFAULT_RECORD_TOPICS, EventRecorderAgent
+
+        recorder = EventRecorderAgent(
+            message_bus=bus,
+            event_store=store,
+            record_topics=[*DEFAULT_RECORD_TOPICS, "data.sanitized"],
+        )
+
+    Or via environment variable (comma-separated, no spaces)::
+
+        GENUS_RECORD_TOPICS=analysis.completed,quality.scored,decision.made,outcome.recorded,data.sanitized
+
 Missing ``run_id`` handling:
     If ``run_id`` is absent from ``message.metadata``, the event is
     recorded under run_id ``"unknown"`` and the envelope metadata will
@@ -18,6 +36,7 @@ Missing ``run_id`` handling:
 """
 
 import logging
+import os
 from typing import List, Optional
 
 from genus.communication.message_bus import Message, MessageBus
@@ -38,6 +57,36 @@ DEFAULT_RECORD_TOPICS: List[str] = [
     "decision.made",
     "outcome.recorded",
 ]
+
+#: Environment variable name for overriding the recorder whitelist at runtime.
+#: Value must be a comma-separated list of topic strings with no spaces.
+#: Example: ``analysis.completed,quality.scored,decision.made,outcome.recorded,data.sanitized``
+_ENV_RECORD_TOPICS = "GENUS_RECORD_TOPICS"
+
+
+def _resolve_record_topics(record_topics: Optional[List[str]]) -> List[str]:
+    """Return the effective whitelist for this recorder instance.
+
+    Priority (highest first):
+
+    1. Explicit *record_topics* constructor argument.
+    2. ``GENUS_RECORD_TOPICS`` environment variable (comma-separated).
+    3. :data:`DEFAULT_RECORD_TOPICS`.
+
+    Args:
+        record_topics: The value passed to the constructor, or ``None``.
+
+    Returns:
+        Deduplicated list of topic strings preserving order.
+    """
+    if record_topics is not None:
+        return list(record_topics)
+
+    env_value = os.environ.get(_ENV_RECORD_TOPICS, "").strip()
+    if env_value:
+        return [t.strip() for t in env_value.split(",") if t.strip()]
+
+    return list(DEFAULT_RECORD_TOPICS)
 
 
 # ---------------------------------------------------------------------------
@@ -71,9 +120,7 @@ class EventRecorderAgent(Agent):
         super().__init__(agent_id=agent_id, name=name or "EventRecorderAgent")
         self._bus = message_bus
         self._store = event_store
-        self._record_topics: List[str] = (
-            list(record_topics) if record_topics is not None else list(DEFAULT_RECORD_TOPICS)
-        )
+        self._record_topics: List[str] = _resolve_record_topics(record_topics)
 
     # ------------------------------------------------------------------
     # Agent lifecycle
