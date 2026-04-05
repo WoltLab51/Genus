@@ -10,12 +10,12 @@ Alle Topics, die im GENUS-MessageBus verwendet werden, sind hier dokumentiert. J
 
 | Topic | Producer | Consumer(s) | Pflicht-Payload-Keys | `run_id` Pflicht? | Persistiert (Default)? |
 |---|---|---|---|---|---|
-| `data.collected` | `DataCollectorAgent` | `AnalysisAgent`, `DataSanitizerAgent` (geplant) | `source`, `raw_data` oder spezifische Felder | ✅ Ja | ❌ Nein (siehe §3) |
+| `data.collected` | `DataCollectorAgent` | `AnalysisAgent`, `DataSanitizerAgent` | `source`, `raw_data` oder spezifische Felder | ✅ Ja | ❌ Nein (siehe §3) |
 | `analysis.completed` | `AnalysisAgent` | `QualityAgent` | `classification`, `confidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `quality.scored` | `QualityAgent` | `DecisionAgent` | `quality_score`, `dimensions`, `evidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `decision.made` | `DecisionAgent` | Downstream / API / Monitoring | `decision`, `reason`, `quality_score`, `min_quality`, `attempt`, `max_retries`, `critical` | ✅ Ja | ✅ Ja (Whitelist) |
 | `outcome.recorded` | *Geplant* | `DecisionAgent` (Feedback-Loop) | `outcome`, `run_id`, `score_delta` | ✅ Ja | ✅ Ja (Whitelist) – *wenn vorhanden* |
-| `data.sanitized` | `DataSanitizerAgent` (geplant) | `AnalysisAgent`, EventRecorder | `sanitized_fields`, `redaction_applied`, `pii_detected`, `removed_fields` | ✅ Ja | ✅ Ja (nach P1-C) |
+| `data.sanitized` | `DataSanitizerAgent` | `AnalysisAgent`, EventRecorder | `source`, `data`, `evidence` (inkl. `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy`) | ✅ Ja | ✅ Ja (nach P1-C, noch nicht in Default-Whitelist) |
 | `data.analyzed` | `AnalysisAgent` (Legacy) | `QualityAgent` (Legacy-Alias) | `classification` | ✅ Ja | ❌ Nein (veraltet, ersetzt durch `analysis.completed`) |
 
 ---
@@ -59,19 +59,43 @@ recorder = EventRecorderAgent(
 
 ### Geplante Lösung: DataSanitizerAgent (P1-C)
 
-Statt `data.collected` direkt zu persistieren, wird ein vorgeschalteter Agent die Daten bereinigen:
+### DataSanitizerAgent (P1-C1, implementiert)
+
+Ein vorgeschalteter Agent bereinigt die Daten deterministisch:
 
 ```
 data.collected  →  DataSanitizerAgent  →  data.sanitized
                        │
                        ├─ Whitelist-Felder: nur erlaubte Felder bleiben
-                       ├─ Redaction: PII-Patterns entfernen
-                       └─ Evidence: redaction_applied, removed_fields, pii_detected
+                       ├─ Größenlimits: max_str_len, max_list_len, max_depth, max_keys_per_level
+                       └─ Evidence: policy_id, policy_version, removed_fields, truncated_fields, blocked_by_policy
 ```
 
-Nach P1-C kann `data.sanitized` optional in die Recorder-Whitelist aufgenommen werden.
+`data.sanitized` Payload-Schema:
 
-**Referenz:** `genus/agents/data_collector_agent.py`, geplant: `genus/agents/data_sanitizer_agent.py`
+```json
+{
+  "source":   "<string> aus payload['source'] / metadata['source'] / 'unknown'",
+  "data":     {"<whitelisted strukturierte Keys>": "..."},
+  "evidence": {
+    "policy_id":         "default",
+    "policy_version":    "p1-c1",
+    "removed_fields":    ["<JSON-Pfad>", "..."],
+    "truncated_fields":  ["<JSON-Pfad>", "..."],
+    "blocked_by_policy": false,
+    "run_id_missing":    true
+  }
+}
+```
+
+**Unbekannte Quellen:** Auch wenn `source` unbekannt ist oder alle Felder entfernt werden,
+wird immer ein `data.sanitized` Event publiziert (kein Silent Drop). Bei vollständiger
+Ablehnung ist `evidence["blocked_by_policy"] = true`.
+
+Nach P1-C kann `data.sanitized` optional in die Recorder-Whitelist aufgenommen werden
+(Default-Whitelist bleibt in diesem PR unverändert).
+
+**Referenz:** `genus/agents/data_sanitizer_agent.py`, `genus/safety/sanitization_policy.py`
 
 ---
 
