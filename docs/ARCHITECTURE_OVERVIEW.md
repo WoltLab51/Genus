@@ -29,7 +29,7 @@ GENUS folgt dem Clean-Architecture-Prinzip mit einer **strikten Dependency-Richt
 | `genus/quality/` | `genus/core/` |
 | `genus/memory/` | `genus/core/`, `genus/communication/` |
 | `genus/agents/` | `genus/core/`, `genus/communication/`, `genus/quality/`, `genus/memory/` |
-| `genus/api/` | Alle Module (Kompositions-Root) |
+| `genus/api/` | Alle Module (Kompositions-Root) – **🔜 Geplant**, existiert noch nicht im Repo |
 
 ---
 
@@ -73,7 +73,10 @@ GENUS folgt dem Clean-Architecture-Prinzip mit einer **strikten Dependency-Richt
 | `EventRecorderAgent` | Whitelist-Topics | – (schreibt in EventStore) | ✅ |
 | `DataSanitizerAgent` | `data.collected` | `data.sanitized` | 🔜 Geplant |
 
-### `genus/api/` – REST-API (FastAPI)
+### `genus/api/` – REST-API (FastAPI) – 🔜 Geplant
+
+> **Hinweis:** Das Modul `genus/api/` existiert aktuell **nicht** im Repository. Die folgenden Komponenten sind geplant (P2/P3), aber noch nicht implementiert.
+
 | Komponente | Verantwortung |
 |---|---|
 | `app.py` | FastAPI App-Factory, Lifespan-Kontext, Dependency-Injection |

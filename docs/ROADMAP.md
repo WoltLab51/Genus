@@ -37,7 +37,7 @@
 | **EventStore / JSONL** | Append-only Persistenz pro run_id | ✅ Implementiert | `genus/memory/` |
 | **EventRecorderAgent** | Subscribt auf Whitelist-Topics, schreibt in EventStore | ✅ Implementiert | `genus/agents/event_recorder_agent.py` |
 | **QualityScorecard** | Strukturiertes Bewertungsobjekt | ✅ Implementiert | `genus/quality/scorecard.py` |
-| **API-Layer (FastAPI)** | REST-Endpunkte, Auth-Middleware, Fehlerbehandlung | ✅ Implementiert | `genus/api/` |
+| **API-Layer (FastAPI)** | REST-Endpunkte, Auth-Middleware, Fehlerbehandlung | 🔜 Geplant | – (kein `genus/api/`-Modul vorhanden) |
 | **DataSanitizerAgent** | Bereinigt Rohdaten vor Persistenz (Whitelist-Felder) | 🔜 Geplant (P1-C) | – |
 | **Orchestrator** | Koordiniert Agenten-Workflows, Fehler-Recovery | 🔜 Geplant | – |
 | **Builder** | Erstellt/konfiguriert Agenten dynamisch | 🔜 Geplant | – |
@@ -144,14 +144,26 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 
 ## 5. Meilensteine
 
-| Milestone | Status | PRs | Inhalt |
-|---|---|---|---|
-| **P0** | ✅ Done | #5 | Core-Infrastruktur: Agent ABC, MessageBus, Lifecycle, Config, erste Agenten |
-| **P1-A** | ✅ Done | #6 | Decision Policy 2.0: accept/retry/replan/escalate/delegate, QualityScorecard, QualityAgent |
-| **P1-B** | ✅ Done | #7 | Memory 2.0: JSONL EventStore, EventEnvelope, EventRecorderAgent, Topic-Whitelist |
-| **P1-C** | 🔜 Geplant | – | DataSanitizerAgent (Whitelist-Felder, Redaction, `data.sanitized` Topic) |
-| **P2** | 🔜 Geplant | – | `outcome.recorded`, Lernen/Calibration, Permissions/Rollen, Kill-Switch |
-| **P3** | 🔜 Geplant | – | Orchestrator, Builder, Sandbox, verteilter MessageBus |
+### ✅ Done
+
+- **P0** (#5) – Core-Infrastruktur: Agent ABC, MessageBus, Lifecycle, Config, erste Agenten
+- **P1-A** (#6) – Decision Policy 2.0: accept/retry/replan/escalate/delegate, QualityScorecard, QualityAgent
+- **P1-B** (#7) – Memory 2.0: JSONL EventStore, EventEnvelope, EventRecorderAgent, Topic-Whitelist
+- **Docs** (#8) – Deutsche Dokumentation: Roter Faden, Topics, Policies, Security, Operations
+
+### ⏳ Next
+
+- **P1-C** – DataSanitizerAgent (Whitelist-Felder, Redaction) + neues Topic `data.sanitized`
+- `outcome.recorded` Feedback-Loop: DecisionAgent publiziert Ergebnis, Recorder persistiert
+- Permissions/Rollen/Kill-Switch (P2)
+- Orchestrator / Builder / Sandbox (P3)
+
+### 🔒 Security-Gates
+
+- `data.collected` **nicht persistieren** – erst wenn `DataSanitizerAgent` (P1-C) existiert und `data.sanitized` erzeugt
+- Recorder ist **Whitelist-only** – neue Topics müssen explizit freigeschaltet werden
+- `run_id` ist **Pflichtfeld** in jeder Nachricht – kein Silent Drop
+- Ein Meilenstein gilt erst als ✅ Done, wenn Tests + Dokumentation + Topic-Registry aktualisiert sind
 
 ---
 
@@ -165,3 +177,37 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 | [`docs/SECURITY.md`](./SECURITY.md) | Sicherheitsposture, Threat Model, geplante Maßnahmen |
 | [`docs/OPERATIONS.md`](./OPERATIONS.md) | Konfiguration, EventStore-Pfad, Debugging-Checkliste |
 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) | Technische Architektur-Referenz (Englisch) |
+
+---
+
+## 7. Glossar
+
+| Begriff | Definition |
+|---|---|
+| **run_id** | Eindeutige Kennung eines GENUS-Runs. Format: `<timestamp>__<slug>__<suffix>` (z. B. `2026-04-05T15-30-00__analyze__abc123`). Pflichtfeld in jedem `Message.metadata`. Wird als Dateiname für den EventStore verwendet (nach Sanitierung). |
+| **Message** | Einheitliches Kommunikationsobjekt im MessageBus. Felder: `topic`, `payload`, `metadata` (enthält mindestens `run_id`), `sender_id`, `priority`. |
+| **payload** | Fachlicher Inhalt einer Nachricht (dict). Struktur ist topic-spezifisch und in `docs/TOPICS.md` dokumentiert. |
+| **metadata** | Technische Metadaten einer Nachricht (dict). Enthält immer `run_id`; kann weitere Felder wie `timestamp` oder `attempt` enthalten. |
+| **topic** | Benannter Kanal im MessageBus (z. B. `analysis.completed`). Namenskonvention: `<domäne>.<ereignis>` (Kleinbuchstaben, Punkte als Trenner). Alle aktiven Topics sind in `docs/TOPICS.md` registriert. |
+| **EventEnvelope** | Persistiertes Objekt im JSONL EventStore. Felder: `timestamp`, `run_id`, `topic`, `sender_id`, `payload`, `metadata`. Wird von `EventRecorderAgent` erzeugt. |
+| **EventStore (JSONL)** | Append-only Persistenzschicht. Speichert Events als JSON-Zeilen in `<GENUS_EVENTSTORE_DIR>/<run_id>.jsonl`. Eine Datei pro run_id. Keine Mutation bestehender Einträge. |
+| **Recorder-Whitelist** | Liste der Topics, die der `EventRecorderAgent` persistiert. Standard: `analysis.completed`, `quality.scored`, `decision.made`. `data.collected` ist bewusst **nicht** enthalten. |
+| **quality_score** | Numerischer Gesamtwert der Qualitätsbewertung (0.0–1.0). Wird von `QualityAgent` berechnet und in `QualityScorecard.overall` gespeichert. |
+| **QualityScorecard** | Strukturiertes Bewertungsobjekt (`genus/quality/scorecard.py`). Felder: `overall` (float), `dimensions` (dict), `evidence` (list). Wird im Payload von `quality.scored` übertragen. |
+| **Decision-Semantik** | Mögliche Entscheidungen des `DecisionAgent`: `accept` (Qualität ausreichend), `retry` (Qualität knapp unter Schwelle, Wiederholung sinnvoll), `replan` (Qualität zu niedrig, neuer Plan nötig), `escalate` (kritischer Fall, manuelles Eingreifen), `delegate` (an anderen Agenten übergeben). |
+| **Critical Gate** | Regel: Wenn `risk=high` oder `critical=True` im Payload und keine expliziten `requirements` definiert sind, erzwingt `DecisionAgent` die Entscheidung `escalate`. Verhindert automatische Akzeptanz bei risikobehafteten Fällen. |
+| **requirements / min_quality** | Konfigurierbare Qualitätsschwelle (Standard: `0.8`). `DecisionAgent` vergleicht `quality_score >= min_quality` für die `accept`-Entscheidung. Kann per Payload oder Konfiguration überschrieben werden. |
+| **Sanitizer (geplant)** | `DataSanitizerAgent` (P1-C): Empfängt `data.collected`, entfernt PII/Secrets per Whitelist-Felder und Regex-Redaction, publiziert bereinigtes `data.sanitized`. Erst danach darf `data.sanitized` in den EventStore aufgenommen werden. |
+
+---
+
+## 8. Anti-Patterns (No-Gos)
+
+| Anti-Pattern | Warum verboten |
+|---|---|
+| **Silent Drop bei fehlender run_id** | Nachrichten ohne `run_id` einfach ignorieren verhindert Debugging und Audit-Nachvollziehbarkeit. Korrekt: unter `"unknown"` speichern **und** Warnung loggen. |
+| **Rohdaten persistieren ohne Sanitizer** | `data.collected` direkt in den EventStore schreiben riskiert PII/Secrets in Audit-Logs. Erst nach `DataSanitizerAgent` (P1-C) darf `data.sanitized` persistiert werden. |
+| **God-Agent / God-Tool** | Ein Agent, der Orchestrierung, Business Logic und I/O gleichzeitig übernimmt, ist untestbar, unsicher und verletzt das Single-Responsibility-Prinzip. |
+| **Topic-Sprawl ohne Registry** | Neue Topics einführen, ohne sie in `docs/TOPICS.md` zu registrieren, führt zu Inkonsistenzen, fehlender Dokumentation und unklaren Persistenz-Regeln. |
+| **Pfad-Injection via run_id** | `run_id` ungefiltert als Dateinamen verwenden ermöglicht Path Traversal (`../../../etc/passwd`). Immer `sanitize_run_id()` aus `genus/memory/jsonl_event_store.py` verwenden. |
+| **Entscheidung ohne Evidence/Reason** | `decision.made` ohne `reason` und `evidence` im Payload ist nicht auditierbar. Jede Entscheidung muss nachvollziehbar begründet sein. |
