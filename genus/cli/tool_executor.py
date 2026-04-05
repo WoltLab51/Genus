@@ -33,6 +33,7 @@ import sys
 
 from genus.communication.message_bus import Message
 from genus.communication.redis_message_bus import RedisMessageBus
+from genus.communication.secure_bus import SecureMessageBus
 from genus.tools import topics as tool_topics
 from genus.tools.events import tool_call_failed_message, tool_call_succeeded_message
 
@@ -72,7 +73,7 @@ def _run_tool(tool_name: str, tool_args: dict):
 # Message handler
 # ---------------------------------------------------------------------------
 
-async def _handle_tool_call(bus: RedisMessageBus, message: Message) -> None:
+async def _handle_tool_call(bus: SecureMessageBus, message: Message) -> None:
     """Process a single ``tool.call.requested`` message."""
     payload = message.payload if isinstance(message.payload, dict) else {}
     run_id: str = message.metadata.get("run_id", "")
@@ -106,8 +107,10 @@ async def main() -> None:
     redis_url = os.environ.get("GENUS_REDIS_URL", "redis://localhost:6379/0")
     logger.info("Connecting to Redis at %s", redis_url)
 
-    bus = RedisMessageBus(redis_url=redis_url)
-    await bus.connect()
+    inner_bus = RedisMessageBus(redis_url=redis_url)
+    await inner_bus.connect()
+
+    bus = SecureMessageBus(inner_bus)
 
     async def handler(message: Message) -> None:
         await _handle_tool_call(bus, message)

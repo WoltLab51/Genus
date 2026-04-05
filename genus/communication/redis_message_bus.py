@@ -7,22 +7,26 @@ messages through Redis Pub/Sub so that multiple processes can communicate.
 
 Differences from the in-memory bus
 ------------------------------------
-- Wildcard topic patterns (e.g. ``"tool.call.*"``) are matched in-process:
-  the underlying Redis transport subscribes to the *exact* topic channels,
-  and wildcard filtering is applied locally when a message arrives.
-- Kill-switch and ACL enforcement are **not** implemented; apply them at
-  the application layer before calling :meth:`publish`.
+- **Wildcard subscriptions are not supported.**  Passing a topic that
+  contains ``"*"`` to :meth:`subscribe` raises :class:`ValueError`.
+  Subscribe to each explicit topic separately (or use
+  :class:`~genus.communication.secure_bus.SecureMessageBus` on top of an
+  in-memory bus for wildcard needs).
+- Kill-switch and ACL enforcement are **not** implemented at this layer;
+  wrap this bus with :class:`~genus.communication.secure_bus.SecureMessageBus`
+  to enforce them (see ``genus/cli/orchestrator.py`` and
+  ``genus/cli/tool_executor.py`` for usage examples).
 - Message history is **local only** – it is not shared across processes.
 - :meth:`connect` and :meth:`close` must be called to manage the Redis
-  connection.
+  connection.  :meth:`connect` must be called inside a running asyncio event
+  loop (i.e. from within an ``async`` function or ``asyncio.run``).
 
 Subscription wildcards
 -----------------------
-Wildcards are supported at the same level as the in-memory bus (``"*"``
-within a segment).  Because Redis channels are exact-match, the bus
-subscribes to each explicit channel the first time an exact subscription
-arrives, and applies ``_topic_matches`` on every incoming message to decide
-which wildcard subscribers should receive it.
+Wildcard topic patterns (e.g. ``"tool.call.*"``) are **not** supported by
+:meth:`subscribe`.  A :class:`ValueError` is raised immediately so the caller
+is aware rather than silently receiving no messages.  Subscribe to each
+concrete topic explicitly instead.
 
 Usage::
 
@@ -99,26 +103,35 @@ class RedisMessageBus:
         """Subscribe *callback* to *topic*.
 
         The subscription is registered synchronously; the underlying Redis
-        channel subscription is kicked off as an async task.
+        channel subscription is kicked off as an async task.  :meth:`connect`
+        must have been awaited before calling this method so that the task
+        runs inside a live event loop.
 
         Args:
-            topic:         Topic string (supports ``*`` wildcards within a
-                           segment, e.g. ``"tool.call.*"``).
+            topic:         Exact topic string.  **Wildcard patterns are not
+                           supported** – a :class:`ValueError` is raised if
+                           ``topic`` contains ``"*"``.  Subscribe to each
+                           concrete topic explicitly.
             subscriber_id: Unique subscriber identifier.
             callback:      Async or sync callable invoked with the
                            :class:`~genus.communication.message_bus.Message`.
+
+        Raises:
+            ValueError: If *topic* contains a wildcard character ``"*"``.
         """
+        if "*" in topic:
+            raise ValueError(
+                "RedisMessageBus does not support wildcard subscriptions; "
+                "subscribe to explicit topics instead.  "
+                f"Got topic: {topic!r}"
+            )
         self._subscribers[topic].add(subscriber_id)
         callback_key = f"{subscriber_id}:{topic}"
         self._callbacks[callback_key] = callback
 
-        # Determine the exact Redis channel(s) to subscribe to.
-        # For wildcard patterns we cannot predict the channel in advance;
-        # instead we subscribe to the pattern as-is and filter locally.
-        # For exact topics we subscribe directly.
-        exact_channel = topic  # Redis does not support wildcards here
+        # Subscribe to the exact Redis channel for this topic.
         asyncio.ensure_future(
-            self._ensure_channel_subscribed(exact_channel)
+            self._ensure_channel_subscribed(topic)
         )
 
     async def _ensure_channel_subscribed(self, channel: str) -> None:

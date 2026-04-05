@@ -26,6 +26,7 @@ import os
 import sys
 
 from genus.communication.redis_message_bus import RedisMessageBus
+from genus.communication.secure_bus import SecureMessageBus
 from genus.orchestration.orchestrator import Orchestrator
 
 logging.basicConfig(
@@ -39,8 +40,10 @@ async def main(problem: str) -> None:
     redis_url = os.environ.get("GENUS_REDIS_URL", "redis://localhost:6379/0")
     logger.info("Connecting to Redis at %s", redis_url)
 
-    bus = RedisMessageBus(redis_url=redis_url)
-    await bus.connect()
+    inner_bus = RedisMessageBus(redis_url=redis_url)
+    await inner_bus.connect()
+
+    bus = SecureMessageBus(inner_bus)
 
     orc = Orchestrator(bus)
     await orc.initialize()

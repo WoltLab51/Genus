@@ -18,9 +18,10 @@ This document describes how to run the Orchestrator and ToolExecutor as
 Both processes connect to Redis independently.  All GENUS topic strings map
 1-to-1 to Redis channel names.  Messages are serialised as JSON.
 
-> **Limitation:** Topic wildcards (e.g. `tool.call.*`) are evaluated
-> in-process after receiving a message from the exact Redis channel.
-> At the Redis level only exact-match channel subscriptions are used.
+> **Limitation — exact topics only:** `RedisMessageBus.subscribe()` supports
+> **exact topic strings only**.  Wildcard patterns (e.g. `tool.call.*`) are
+> **not supported** and will raise a `ValueError` immediately.  Subscribe to
+> each concrete topic explicitly instead.
 
 ---
 
@@ -114,6 +115,7 @@ Any unknown tool name results in a `tool.call.failed` response.
 | `genus/communication/serialization.py`           | `message_to_dict` / `message_from_dict` helpers  |
 | `genus/communication/transports/redis_pubsub.py` | Low-level Redis Pub/Sub adapter                   |
 | `genus/communication/redis_message_bus.py`       | `RedisMessageBus` (same API as `MessageBus`)      |
+| `genus/communication/secure_bus.py`              | `SecureMessageBus` – wraps any bus with kill-switch + ACL |
 | `genus/cli/tool_executor.py`                     | Standalone ToolExecutor process                   |
 | `genus/cli/orchestrator.py`                      | Standalone Orchestrator process                   |
 | `docker-compose.redis.yml`                       | Docker Compose for local Redis                    |
