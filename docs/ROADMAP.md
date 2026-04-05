@@ -154,10 +154,11 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 ### ⏳ Next
 
 - **P1-C** – DataSanitizerAgent (Whitelist-Felder, Redaction) + neues Topic `data.sanitized`
-- `outcome.recorded` Feedback-Loop (**Contract + Persistenz ✅ ready**, **Producer/Publisher 🔜 geplant**):
+- `outcome.recorded` Feedback-Loop (**Contract + Persistenz + CLI-Producer ✅ ready**, **Agent-Wrapper / API-Adapter 🔜 geplant**):
   - ✅ Topic-Contract definiert (`docs/TOPICS.md`)
   - ✅ `EventRecorderAgent` persistiert `outcome.recorded` (Default-Whitelist + Tests vorhanden)
-  - 🔜 Offen: Producer/Publisher (wer publiziert Outcome-Events) + Calibration/Policy-Nutzung
+  - ✅ CLI-Producer implementiert (`python -m genus.cli.outcome`, siehe `genus/cli/outcome.py` + `docs/OPERATIONS.md`)
+  - 🔜 Offen: Agent-Wrapper (`outcome.submit` → `outcome.recorded`) + API-Endpoint-Adapter + Calibration/Policy-Nutzung
 - Permissions/Rollen/Kill-Switch (P2)
 - Orchestrator / Builder / Sandbox (P3)
 
