@@ -6,7 +6,7 @@
 
 ## 1. Sicherheitsposture (heute)
 
-### Implementierte Maßnahmen (Stand: P1-B)
+### Implementierte Maßnahmen (Stand: P2)
 
 | Maßnahme | Beschreibung | Implementierung |
 |---|---|---|
@@ -14,6 +14,8 @@
 | **Recorder-Whitelist** | Nur explizit freigegebene Topics werden persistiert (kein Opt-out vergessen) | `genus/agents/event_recorder_agent.py`: `DEFAULT_RECORD_TOPICS` |
 | **Keine Rohdaten-Persistenz** | `data.collected` ist nicht in der Standard-Whitelist – Rohdaten werden nie automatisch gespeichert | Explizite Entscheidung in `DEFAULT_RECORD_TOPICS` |
 | **Filename-Sanitierung** | `run_id` wird vor Dateizugriff sanitiert; Path-Traversal-Sequenzen (`..`) werfen `ValueError` | `genus/memory/jsonl_event_store.py`: `sanitize_run_id()` |
+| **Topic-ACL (opt-in)** | Exact-match Whitelist, welche Sender auf welchen Topics publishen dürfen. Standardmäßig permissiv; Enforcement nur bei `acl_enforced=True` | `genus/security/topic_acl.py`, `genus/communication/message_bus.py` |
+| **Kill-Switch (opt-in)** | Globaler Notfall-Stop; blockiert alle `publish()`-Aufrufe außer einer konfigurierbaren Allowlist | `genus/security/kill_switch.py`, `genus/communication/message_bus.py` |
 | **API-Key-Authentifizierung** | Alle Endpunkte außer `/health` verlangen `Authorization: Bearer <key>` | 🔜 Geplant – `genus/api/middleware.py` (noch nicht implementiert) |
 | **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (außer Debug-Mode) | 🔜 Geplant – `genus/api/errors.py` (noch nicht implementiert) |
 | **Append-only EventStore** | Events können nicht mutiert oder gelöscht werden – manipulationssicheres Audit-Log | `genus/memory/jsonl_event_store.py` |
@@ -29,7 +31,7 @@
 | **PII / Secrets in Rohdaten** | `data.collected` kann personenbezogene Daten enthalten | Nicht persistiert by default | ✅ Heute |
 | **Path Traversal via run_id** | Angreifer schleust `../../../etc/passwd` als run_id ein | `sanitize_run_id()` wirft `ValueError` bei `..` | ✅ Heute |
 | **Event Poisoning** | Manipulierte Payload-Daten, die downstream falsche Entscheidungen auslösen | Payload-Validierung in `QualityAgent`/`DecisionAgent` | ⚠️ Partiell |
-| **Topic Spoofing** | Unberechtigter Agent publiziert auf gesichertem Topic | Kein Sender-Whitelist für Topics (MessageBus-Ebene) | 🔜 Geplant |
+| **Topic Spoofing** | Unberechtigter Agent publiziert auf gesichertem Topic | Kein Sender-Whitelist für Topics (MessageBus-Ebene) | ✅ Heute (opt-in) |
 | **Replay-Angriffe** | Alte Events werden erneut eingespielt | Kein Replay-Schutz (Event-Timestamps vorhanden) | 🔜 Geplant |
 | **Unbefugter API-Zugriff** | Zugriff ohne gültigen API-Key | API-Key-Auth auf allen Endpunkten | ✅ Heute |
 | **Credential-Leak im EventStore** | Secrets landen versehentlich in JSONL-Logs | Keine Rohdaten-Persistenz; Sanitizer geplant | ✅/🔜 Teilweise |
@@ -54,19 +56,51 @@ data.collected  →  DataSanitizerAgent  →  data.sanitized
 - **Evidence**: `redaction_applied`, `pii_detected`, `removed_fields` im Payload dokumentiert
 - **Größenlimit**: Payloads über einem konfigurierbaren Limit werden abgelehnt
 
-### P2: Berechtigungen / Rollen
+### P2: Berechtigungen / Rollen ✅ (opt-in implementiert)
 
-| Geplantes Feature | Beschreibung |
-|---|---|
-| **Topic-Permissions** | Whitelist, welche Agenten auf welchen Topics publishen dürfen |
-| **Rollen** | Unterscheidung: Operator / Reader / Admin |
-| **Audit-Log für Rollen-Zugriffe** | Wer hat wann welches Topic publisht? |
+| Feature | Beschreibung | Status |
+|---|---|---|
+| **Topic-ACL (opt-in)** | `TopicAclPolicy`: exact-match Mapping `sender_id → set[topic]`; Enforcement via `acl_enforced=True` am MessageBus | ✅ Heute |
+| **Rollen** | Unterscheidung: Operator / Reader / Admin | 🔜 Geplant |
+| **Audit-Log für Rollen-Zugriffe** | Wer hat wann welches Topic publisht? | 🔜 Geplant |
 
-### P2: Kill-Switch
+#### Topic-ACL: opt-in Enforcement
 
-- Notfall-Mechanismus zum sofortigen Stopp aller laufenden Runs
-- Geplant als API-Endpunkt (`POST /admin/kill-switch`) und direkter Lifecycle-Aufruf
-- Verhindert weitere `publish()`-Aufrufe nach Aktivierung
+ACL-Enforcement ist **standardmäßig deaktiviert**. Der MessageBus ist im Default-Modus vollständig permissiv – bestehende Tests und Pipelines laufen unverändert.
+
+```python
+from genus.security.topic_acl import TopicAclPolicy, TopicPermissionError
+from genus.communication.message_bus import MessageBus
+
+policy = TopicAclPolicy()
+policy.allow("QualityAgent-1", "quality.scored")
+policy.allow("AnalysisAgent-1", "analysis.completed")
+
+# Enforcement aktivieren:
+bus = MessageBus(acl_policy=policy, acl_enforced=True)
+# bus.publish() wirft jetzt TopicPermissionError für unbekannte Sender/Topics
+```
+
+**QM-Hinweis:** QualityAgent und DecisionAgent laufen im Default-Modus (`acl_enforced=False`) unverändert. Bei Enforcement: jeden publizierenden Agent explizit in der Policy eintragen.
+
+### P2: Kill-Switch ✅ (implementiert)
+
+```python
+from genus.security.kill_switch import KillSwitch, KillSwitchActiveError
+from genus.communication.message_bus import MessageBus
+
+ks = KillSwitch(allowed_topics={"health.ping"})  # optional allowlist
+bus = MessageBus(kill_switch=ks)
+
+# Notfall-Aktivierung:
+ks.activate(reason="Sicherheitsvorfall", actor="ops-team")
+# Alle bus.publish()-Aufrufe außer "health.ping" werfen KillSwitchActiveError
+
+# Normalbetrieb wiederherstellen:
+ks.deactivate(actor="ops-team")
+```
+
+**Wichtig:** Ein aktiver Kill-Switch blockiert **auch** QualityAgent und DecisionAgent. Das ist beabsichtigt – ein aktiver Kill-Switch signalisiert den vollständigen Notfall-Stop des Systems.
 
 ---
 
