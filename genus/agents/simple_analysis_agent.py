@@ -2,21 +2,19 @@ from genus.communication.message_bus import Message
 from genus.core.logger import Logger
 
 
-class SimpleDecisionAgent:
+class SimpleAnalysisAgent:
     def __init__(self, name, bus):
         self.name = name
         self.bus = bus
 
     async def handle_message(self, message):
-        Logger.log(self.name, "making decision", message.payload)
+        Logger.log(self.name, "analyzing data", message.payload)
 
-        decision = "BUY" if message.payload["score"] > 50 else "WAIT"
-
-        Logger.log(self.name, f"decision = {decision}")
+        result = {"score": message.payload["value"] * 2}
 
         new_message = Message(
-            topic="decision.made",
-            payload={"decision": decision},
+            topic="data.analyzed",
+            payload=result,
             sender_id=self.name
         )
 

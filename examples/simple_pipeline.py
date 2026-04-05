@@ -1,27 +1,27 @@
 import asyncio
 
 from genus.communication.message_bus import MessageBus
-from genus.agents.data_collector_agent import DataCollectorAgent
-from genus.agents.analysis_agent import AnalysisAgent
-from genus.agents.decision_agent import DecisionAgent
+from genus.agents.simple_agent import SimpleAgent
+from genus.agents.simple_analysis_agent import SimpleAnalysisAgent
+from genus.agents.simple_decision_agent import SimpleDecisionAgent
+from genus.agents.simple_feedback_agent import SimpleFeedbackAgent
 
 
 async def main():
     bus = MessageBus()
 
-    collector = DataCollectorAgent("collector", bus)
-    analysis = AnalysisAgent("analysis", bus)
-    decision = DecisionAgent("decision", bus)
+    collector = SimpleAgent("collector", bus)
+    analysis = SimpleAnalysisAgent("analysis", bus)
+    decision = SimpleDecisionAgent("decision", bus)
+    feedback = SimpleFeedbackAgent("feedback", bus)
 
-    # Subscriptions
-    bus.subscribe("data.collected", analysis.handle_message)
-    bus.subscribe("data.analyzed", decision.handle_message)
+    # Subscriptions (WICHTIG: 3 Parameter!)
+    bus.subscribe("data.collected", "analysis", analysis.handle_message)
+    bus.subscribe("data.analyzed", "decision", decision.handle_message)
+    bus.subscribe("decision.made", "feedback", feedback.handle_message)
 
-    # Run one cycle
+    # Start
     await collector.execute()
-
-    # kleine Pause damit async durchläuft
-    await asyncio.sleep(1)
 
 
 if __name__ == "__main__":
