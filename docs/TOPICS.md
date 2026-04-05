@@ -14,7 +14,7 @@ Alle Topics, die im GENUS-MessageBus verwendet werden, sind hier dokumentiert. J
 | `analysis.completed` | `AnalysisAgent` | `QualityAgent` | `classification`, `confidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `quality.scored` | `QualityAgent` | `DecisionAgent` | `quality_score`, `dimensions`, `evidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `decision.made` | `DecisionAgent` | Downstream / API / Monitoring | `decision`, `reason`, `quality_score`, `min_quality`, `attempt`, `max_retries`, `critical` | ✅ Ja | ✅ Ja (Whitelist) |
-| `outcome.recorded` | Operator / externer Producer | `DecisionAgent` (Feedback-Loop, geplant) | `outcome`, `run_id`, `score_delta` | ✅ Ja | ✅ Ja (Default-Whitelist) |
+| `outcome.recorded` | `OutcomeCLI` / Operator | `DecisionAgent` (Feedback-Loop, geplant) | `outcome`, `score_delta`, `source` | ✅ Ja | ✅ Ja (Default-Whitelist) |
 | `data.sanitized` | `DataSanitizerAgent` | `AnalysisAgent`, EventRecorder | `source`, `data`, `evidence` (inkl. `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy`) | ✅ Ja | ⚙️ Opt-in (nicht in Default-Whitelist, siehe §2.1) |
 | `data.analyzed` | `AnalysisAgent` (Legacy) | `QualityAgent` (Legacy-Alias) | `classification` | ✅ Ja | ❌ Nein (veraltet, ersetzt durch `analysis.completed`) |
 
@@ -175,6 +175,21 @@ Nach P1-C kann `data.sanitized` optional in die Recorder-Whitelist aufgenommen w
     "critical": false
 }
 ```
+
+### `outcome.recorded` Payload
+```python
+{
+    "outcome": "good",           # good | bad | unknown
+    "score_delta": 1.0,          # float, clamped to [-10.0, 10.0]
+    "source": "user",            # optional str, max 64 chars; default "user"
+    # optional:
+    "notes": "...",              # optional str, max 256 chars
+    "timestamp": "2026-04-05T17:00:00+00:00"  # ISO-8601; set automatically by CLI
+}
+```
+
+> `run_id` wird **ausschließlich** in `Message.metadata["run_id"]` geführt,
+> nicht im Payload.
 
 ---
 
