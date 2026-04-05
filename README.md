@@ -4,6 +4,17 @@
 
 A modular agent-based framework built on clean architecture principles.
 
+## Dokumentation / Roter Faden
+
+Einstieg in die GENUS-Dokumentation:
+
+- 📍 **[docs/ROADMAP.md](docs/ROADMAP.md)** – Roter Faden: GENUS-2.0 Überblick, Meilensteine, E2E-Beispiel
+- 🏗 [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) – Modulgrenzen, Clean Architecture, Agent-Lifecycle
+- 📋 [docs/TOPICS.md](docs/TOPICS.md) – Topic-Registry, Payload-Contracts, Recorder-Whitelist
+- ⚖️ [docs/POLICIES.md](docs/POLICIES.md) – Decision-Semantik (accept/retry/replan/escalate/delegate)
+- 🔒 [docs/SECURITY.md](docs/SECURITY.md) – Sicherheitsposture, Threat Model, geplante Maßnahmen
+- 🛠 [docs/OPERATIONS.md](docs/OPERATIONS.md) – Konfiguration, EventStore, Debugging-Checkliste
+
 ## Overview
 
 GENUS is a lightweight, extensible framework for building multi-agent systems with clear separation of concerns. It provides:
