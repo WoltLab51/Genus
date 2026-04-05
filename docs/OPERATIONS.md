@@ -14,7 +14,6 @@
 | `GENUS_EVENTSTORE_DIR` | `var/events` | Verzeichnis für JSONL-Event-Logs (pro `run_id` eine Datei) |
 | `GENUS_ENV` | `development` | Umgebung; `production` deaktiviert Debug-Details in Fehlermeldungen |
 | `GENUS_LOG_LEVEL` | `INFO` | Log-Level: `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-
 ### Beispiel: Docker / systemd
 
 ```bash
@@ -184,7 +183,77 @@ python -m genus.cli.outcome \
 
 ---
 
-## 6. Tests ausführen
+## 6. Sicherheits-Features: Topic-ACL und Kill-Switch
+
+### 6.1 Topic-ACL (opt-in)
+
+Die ACL-Enforcement ist **standardmäßig deaktiviert**. Der MessageBus ist im
+Default vollständig permissiv – bestehende Pipelines und Tests laufen
+unverändert.
+
+Enforcement aktivieren:
+
+```python
+from genus.security.topic_acl import TopicAclPolicy, TopicPermissionError
+from genus.communication.message_bus import MessageBus
+
+policy = TopicAclPolicy()
+policy.allow("QualityAgent-1", "quality.scored")
+policy.allow("AnalysisAgent-1", "analysis.completed")
+policy.allow("DecisionAgent-1", "decision.made")
+
+bus = MessageBus(acl_policy=policy, acl_enforced=True)
+# Jedes publish() prüft nun, ob sender_id das Topic darf.
+# Bei Verstoß: TopicPermissionError
+```
+
+**QM-Sicherheit:** QualityAgent und DecisionAgent bleiben im Default-Modus
+unberührt. Bei aktivem Enforcement jeden publizierenden Agent explizit in der
+Policy eintragen.
+
+### 6.2 Kill-Switch
+
+Globaler Notfall-Stop für alle `publish()`-Aufrufe am MessageBus.
+
+```python
+from genus.security.kill_switch import KillSwitch, KillSwitchActiveError
+from genus.communication.message_bus import MessageBus
+
+ks = KillSwitch(allowed_topics={"health.ping"})  # optionale Allowlist
+bus = MessageBus(kill_switch=ks)
+```
+
+**Aktivieren (Notfall):**
+
+```python
+ks.activate(reason="Sicherheitsvorfall erkannt", actor="ops-team")
+# Ab sofort wirft jedes bus.publish() für Topics außerhalb der Allowlist
+# eine KillSwitchActiveError.
+```
+
+**Deaktivieren (Normalbetrieb wiederherstellen):**
+
+```python
+ks.deactivate(actor="ops-team")
+# Normaler Betrieb sofort wiederhergestellt – kein Restart nötig.
+```
+
+**Reihenfolge:** Der Kill-Switch wird **vor** dem ACL-Check geprüft.
+
+**QM-Auswirkung:** Ein aktiver Kill-Switch blockiert **auch** QualityAgent und
+DecisionAgent. Das ist beabsichtigt – ein aktiver Kill-Switch signalisiert den
+vollständigen Notfall-Stop des Systems. Nach `deactivate()` laufen alle Agents
+sofort wieder normal.
+
+| Zustand | Auswirkung |
+|---|---|
+| `ks.is_active() == False` | Kein Einfluss auf publish() – Normalbetrieb |
+| `ks.is_active() == True` | Alle publish()-Aufrufe außer Allowlist → `KillSwitchActiveError` |
+| Nach `ks.deactivate()` | Sofort wieder Normalbetrieb (kein Restart erforderlich) |
+
+---
+
+## 7. Tests ausführen
 
 ```bash
 # Alle Tests
@@ -193,13 +262,16 @@ python -m pytest tests/ -v
 # Nur EventStore-Tests
 python -m pytest tests/ -v -k "event_store or recorder"
 
+# Nur Security-Tests
+python -m pytest tests/ -v -k "security"
+
 # Mit Coverage
 python -m pytest tests/ --cov=genus --cov-report=term-missing
 ```
 
 ---
 
-## 7. Monitoring-Hinweise
+## 8. Monitoring-Hinweise
 
 | Signal | Bedeutung | Aktion |
 |---|---|---|
@@ -207,3 +279,5 @@ python -m pytest tests/ --cov=genus --cov-report=term-missing
 | Viele `escalate`-Entscheidungen | Qualität unter Schwelle, Budget erschöpft | Analyse-Pipeline oder `min_quality` prüfen |
 | Viele `replan`-Entscheidungen | Kein Qualitätssignal | QualityAgent-Subscription und Analysis-Output prüfen |
 | `var/events/` wächst stark | Viele Runs | EventStore-Archivierungsstrategie planen (manuell, kein Auto-Cleanup) |
+| `KillSwitchActiveError` im Log | Kill-Switch ist aktiv | `ks.deactivate()` aufrufen wenn Notfall behoben |
+| `TopicPermissionError` im Log | ACL-Verstoß (Enforcement aktiv) | Policy prüfen: fehlt ein `allow()`-Eintrag? |
