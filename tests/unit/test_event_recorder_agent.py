@@ -8,13 +8,19 @@ Covers:
 - Custom record_topics whitelist respected
 - All default whitelist topics are recorded
 - Agent lifecycle (initialize / start / stop)
+- data.sanitized opt-in via record_topics and GENUS_RECORD_TOPICS env var
 """
 
+import os
 import tempfile
 
 import pytest
 
-from genus.agents.event_recorder_agent import DEFAULT_RECORD_TOPICS, EventRecorderAgent
+from genus.agents.event_recorder_agent import (
+    DEFAULT_RECORD_TOPICS,
+    EventRecorderAgent,
+    _resolve_record_topics,
+)
 from genus.communication.message_bus import Message, MessageBus
 from genus.memory.jsonl_event_store import JsonlEventStore
 
@@ -249,3 +255,153 @@ class TestEventRecorderAgentLifecycle:
             agent, bus, store = await _setup(tmpdir)
             await agent.stop()
             assert agent.state == AgentState.STOPPED
+
+
+# ===========================================================================
+# data.sanitized – opt-in persistence (P1-C2)
+# ===========================================================================
+
+class TestDataSanitizedOptIn:
+    """Verify that data.sanitized is NOT persisted by default, but IS persisted
+    when the operator explicitly opts in via record_topics or the
+    GENUS_RECORD_TOPICS environment variable."""
+
+    def test_data_sanitized_not_in_default_whitelist(self):
+        assert "data.sanitized" not in DEFAULT_RECORD_TOPICS
+
+    @pytest.mark.asyncio
+    async def test_default_does_not_persist_data_sanitized(self):
+        """Without opt-in, data.sanitized events must not be stored."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Use default (no record_topics argument, no env var)
+            agent, bus, store = await _setup(tmpdir)
+            await bus.publish(
+                _make_message(
+                    "data.sanitized",
+                    payload={"source": "test", "data": {}, "evidence": {}},
+                )
+            )
+            result = store.list(RUN_ID)
+            assert result == [], "data.sanitized must not be persisted by default"
+
+    @pytest.mark.asyncio
+    async def test_opt_in_via_record_topics_persists_data_sanitized(self):
+        """When record_topics explicitly includes data.sanitized, it must be stored."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent, bus, store = await _setup(
+                tmpdir,
+                record_topics=[*DEFAULT_RECORD_TOPICS, "data.sanitized"],
+            )
+            payload = {
+                "source": "home-assistant",
+                "data": {"sensor_type": "temperature", "value": 21.5},
+                "evidence": {
+                    "policy_id": "default",
+                    "policy_version": "p1-c1",
+                    "removed_fields": [],
+                    "truncated_fields": [],
+                    "blocked_by_policy": False,
+                    "run_id_missing": False,
+                },
+            }
+            await bus.publish(_make_message("data.sanitized", payload=payload))
+            result = store.list(RUN_ID)
+            assert len(result) == 1
+            assert result[0].topic == "data.sanitized"
+            assert result[0].payload["source"] == "home-assistant"
+
+    @pytest.mark.asyncio
+    async def test_opt_in_still_records_default_topics(self):
+        """After opt-in, default whitelisted topics are still recorded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent, bus, store = await _setup(
+                tmpdir,
+                record_topics=[*DEFAULT_RECORD_TOPICS, "data.sanitized"],
+            )
+            await bus.publish(_make_message("analysis.completed"))
+            await bus.publish(_make_message("data.sanitized", payload={"source": "x"}))
+            result = store.list(RUN_ID)
+            assert len(result) == 2
+            topics = [e.topic for e in result]
+            assert "analysis.completed" in topics
+            assert "data.sanitized" in topics
+
+
+# ===========================================================================
+# _resolve_record_topics – env var support (P1-C2)
+# ===========================================================================
+
+class TestResolveRecordTopics:
+    """Unit tests for the _resolve_record_topics helper."""
+
+    def test_explicit_list_wins_over_env(self):
+        old = os.environ.get("GENUS_RECORD_TOPICS")
+        try:
+            os.environ["GENUS_RECORD_TOPICS"] = "quality.scored"
+            result = _resolve_record_topics(["decision.made"])
+            assert result == ["decision.made"]
+        finally:
+            if old is None:
+                os.environ.pop("GENUS_RECORD_TOPICS", None)
+            else:
+                os.environ["GENUS_RECORD_TOPICS"] = old
+
+    def test_env_var_used_when_no_explicit_list(self):
+        old = os.environ.get("GENUS_RECORD_TOPICS")
+        try:
+            os.environ["GENUS_RECORD_TOPICS"] = (
+                "analysis.completed,quality.scored,data.sanitized"
+            )
+            result = _resolve_record_topics(None)
+            assert result == ["analysis.completed", "quality.scored", "data.sanitized"]
+        finally:
+            if old is None:
+                os.environ.pop("GENUS_RECORD_TOPICS", None)
+            else:
+                os.environ["GENUS_RECORD_TOPICS"] = old
+
+    def test_default_used_when_no_explicit_and_no_env(self):
+        old = os.environ.get("GENUS_RECORD_TOPICS")
+        try:
+            os.environ.pop("GENUS_RECORD_TOPICS", None)
+            result = _resolve_record_topics(None)
+            assert result == DEFAULT_RECORD_TOPICS
+        finally:
+            if old is not None:
+                os.environ["GENUS_RECORD_TOPICS"] = old
+
+    def test_empty_env_var_falls_back_to_default(self):
+        old = os.environ.get("GENUS_RECORD_TOPICS")
+        try:
+            os.environ["GENUS_RECORD_TOPICS"] = ""
+            result = _resolve_record_topics(None)
+            assert result == DEFAULT_RECORD_TOPICS
+        finally:
+            if old is None:
+                os.environ.pop("GENUS_RECORD_TOPICS", None)
+            else:
+                os.environ["GENUS_RECORD_TOPICS"] = old
+
+    @pytest.mark.asyncio
+    async def test_env_var_opt_in_persists_data_sanitized(self):
+        """Integration: GENUS_RECORD_TOPICS env var enables data.sanitized persistence."""
+        old = os.environ.get("GENUS_RECORD_TOPICS")
+        try:
+            os.environ["GENUS_RECORD_TOPICS"] = (
+                "analysis.completed,quality.scored,decision.made,"
+                "outcome.recorded,data.sanitized"
+            )
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # record_topics=None → picks up env var
+                agent, bus, store = await _setup(tmpdir, record_topics=None)
+                await bus.publish(
+                    _make_message("data.sanitized", payload={"source": "env-test"})
+                )
+                result = store.list(RUN_ID)
+                assert len(result) == 1
+                assert result[0].topic == "data.sanitized"
+        finally:
+            if old is None:
+                os.environ.pop("GENUS_RECORD_TOPICS", None)
+            else:
+                os.environ["GENUS_RECORD_TOPICS"] = old
