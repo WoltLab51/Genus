@@ -217,3 +217,38 @@ class TestSecureBusDelegation:
         bus = SecureMessageBus(inner)
         await bus.connect()   # no-op
         await bus.close()     # no-op
+
+
+# ---------------------------------------------------------------------------
+# RedisMessageBus unit tests (no Redis required)
+# ---------------------------------------------------------------------------
+
+class TestRedisMessageBusSubscribe:
+    """Unit tests for RedisMessageBus that do not require a Redis connection."""
+
+    def test_wildcard_topic_raises_value_error(self):
+        """subscribe() must raise ValueError for any topic containing '*'."""
+        from genus.communication.redis_message_bus import RedisMessageBus
+
+        bus = RedisMessageBus()
+        with pytest.raises(ValueError, match="wildcard"):
+            bus.subscribe("tool.call.*", "TestSub", lambda m: None)
+
+    def test_wildcard_mid_segment_raises_value_error(self):
+        from genus.communication.redis_message_bus import RedisMessageBus
+
+        bus = RedisMessageBus()
+        with pytest.raises(ValueError, match="wildcard"):
+            bus.subscribe("*.call.requested", "TestSub", lambda m: None)
+
+    def test_exact_topic_subscribe_does_not_raise(self):
+        """subscribe() with an exact topic (no '*') must not raise."""
+        from genus.communication.redis_message_bus import RedisMessageBus
+
+        bus = RedisMessageBus()
+        # Should not raise — Redis channel subscription will be deferred
+        # via asyncio.ensure_future, but the sync part must succeed.
+        try:
+            bus.subscribe("tool.call.requested", "TestSub", lambda m: None)
+        except ValueError:
+            pytest.fail("subscribe() raised ValueError for an exact topic")

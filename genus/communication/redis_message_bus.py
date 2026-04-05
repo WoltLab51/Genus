@@ -179,28 +179,21 @@ class RedisMessageBus:
     # ------------------------------------------------------------------
 
     async def _on_redis_message(self, message: Message) -> None:
-        """Called by the transport for every message received from Redis."""
+        """Called by the transport for every message received from Redis.
+
+        Dispatches to all subscribers registered for *exactly* ``message.topic``.
+        Wildcard patterns are not supported (``subscribe()`` already rejects them).
+        """
         # Store in local history too
         self._message_history.append(message)
         if len(self._message_history) > self._max_history:
             self._message_history.pop(0)
 
-        matching = self._get_matching_subscribers(message.topic)
+        subscriber_ids = set(self._subscribers.get(message.topic, set()))
         tasks = []
-        for subscriber_id in matching:
-            # Try exact topic key first, then wildcard patterns
-            callback = None
-            exact_key = f"{subscriber_id}:{message.topic}"
-            if exact_key in self._callbacks:
-                callback = self._callbacks[exact_key]
-            else:
-                # Check wildcard subscriptions for this subscriber
-                for sub_topic, subs in self._subscribers.items():
-                    if subscriber_id in subs and self._topic_matches(message.topic, sub_topic):
-                        wc_key = f"{subscriber_id}:{sub_topic}"
-                        if wc_key in self._callbacks:
-                            callback = self._callbacks[wc_key]
-                            break
+        for subscriber_id in subscriber_ids:
+            callback_key = f"{subscriber_id}:{message.topic}"
+            callback = self._callbacks.get(callback_key)
             if callback is not None:
                 tasks.append(self._deliver(callback, message))
 
@@ -215,32 +208,6 @@ class RedisMessageBus:
                 callback(message)
         except Exception as exc:
             logger.warning("Error delivering Redis message: %s", exc)
-
-    # ------------------------------------------------------------------
-    # Wildcard matching (same logic as in-memory bus)
-    # ------------------------------------------------------------------
-
-    def _get_matching_subscribers(self, topic: str) -> Set[str]:
-        matching: Set[str] = set()
-        if topic in self._subscribers:
-            matching.update(self._subscribers[topic])
-        for sub_topic in self._subscribers.keys():
-            if self._topic_matches(topic, sub_topic):
-                matching.update(self._subscribers[sub_topic])
-        return matching
-
-    def _topic_matches(self, topic: str, pattern: str) -> bool:
-        if pattern == topic:
-            return True
-        if "*" in pattern:
-            pattern_parts = pattern.split(".")
-            topic_parts = topic.split(".")
-            if len(pattern_parts) != len(topic_parts):
-                return False
-            return all(
-                p == "*" or p == t for p, t in zip(pattern_parts, topic_parts)
-            )
-        return False
 
     # ------------------------------------------------------------------
     # History (local only)
