@@ -12,7 +12,7 @@ Design principles:
 """
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 
 @dataclass
@@ -85,7 +85,7 @@ class ToolRegistry:
         """
         return self._tools.get(name)
 
-    def list_names(self) -> list:
+    def list_names(self) -> List[str]:
         """Return a list of all registered tool names.
 
         Returns:

@@ -8,79 +8,17 @@ Verifies:
 - Invalid arguments return tool.call.failed
 - Uses Message factories from genus.tools.events
 
-These tests isolate _handle_tool_call without requiring Redis.
+These tests exercise the real implementation in genus.tools.executor
+without requiring Redis.
 """
 
 import asyncio
 import pytest
 
-from genus.communication.message_bus import Message, MessageBus
+from genus.communication.message_bus import MessageBus
 from genus.tools import topics as tool_topics
 from genus.tools.events import tool_call_requested_message
-from genus.tools.registry import ToolRegistry, ToolSpec
-from genus.tools.impl.echo import echo
-from genus.tools.impl.add import add
-from genus.tools.impl.summarize import summarize
-
-
-# ---------------------------------------------------------------------------
-# Helper to simulate _handle_tool_call
-# ---------------------------------------------------------------------------
-
-async def _simulate_handle_tool_call(
-    bus: MessageBus, registry: ToolRegistry, message: Message
-) -> None:
-    """Simulate the _handle_tool_call logic from tool_executor.py.
-
-    This is a simplified version for testing without Redis dependencies.
-    """
-    from genus.tools.events import tool_call_failed_message, tool_call_succeeded_message
-    import inspect
-
-    AGENT_ID = "TestToolExecutor"
-
-    payload = message.payload if isinstance(message.payload, dict) else {}
-    run_id: str = message.metadata.get("run_id", "")
-    step_id: str = payload.get("step_id", "")
-    tool_name: str = payload.get("tool_name", "")
-    tool_args: dict = payload.get("tool_args", {})
-
-    # Look up the tool in the registry
-    spec = registry.get(tool_name)
-    if spec is None:
-        error = "unknown tool: {}".format(tool_name)
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-        await bus.publish(response)
-        return
-
-    # Execute the tool handler
-    try:
-        handler = spec.handler
-        # Check if the handler is async or sync
-        if inspect.iscoroutinefunction(handler):
-            result = await handler(**tool_args)
-        else:
-            result = handler(**tool_args)
-
-        response = tool_call_succeeded_message(
-            run_id, AGENT_ID, step_id, tool_name, result
-        )
-    except TypeError as exc:
-        # Wrong arguments passed to the handler
-        error = "invalid arguments: {}".format(str(exc))
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-    except Exception as exc:
-        # Other execution errors
-        error = str(exc)
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-
-    await bus.publish(response)
+from genus.tools.executor import _build_registry, _handle_tool_call
 
 
 # ---------------------------------------------------------------------------
@@ -95,12 +33,8 @@ def bus():
 
 @pytest.fixture
 def registry():
-    """Create a ToolRegistry with standard tools."""
-    reg = ToolRegistry()
-    reg.register(ToolSpec(name="echo", handler=echo))
-    reg.register(ToolSpec(name="add", handler=add))
-    reg.register(ToolSpec(name="summarize", handler=summarize))
-    return reg
+    """Create a ToolRegistry with standard tools via the real _build_registry."""
+    return _build_registry()
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +53,7 @@ class TestToolExecutorRegistry:
             tool_args={},
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1
@@ -139,7 +73,7 @@ class TestToolExecutorRegistry:
             tool_args={"message": "hello world"},
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1
@@ -159,7 +93,7 @@ class TestToolExecutorRegistry:
             tool_args={"a": 5, "b": 7},
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1
@@ -179,7 +113,7 @@ class TestToolExecutorRegistry:
             tool_args={"text": "long document"},
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1
@@ -199,7 +133,7 @@ class TestToolExecutorRegistry:
             tool_args={"a": 5},  # Missing 'b' argument
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1
@@ -219,7 +153,7 @@ class TestToolExecutorRegistry:
             tool_args={"message": "test"},
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1
@@ -237,7 +171,7 @@ class TestToolExecutorRegistry:
             tool_args={"message": "test"},
         )
 
-        await _simulate_handle_tool_call(bus, registry, request)
+        await _handle_tool_call(bus, registry, request)
 
         history = bus.get_message_history()
         assert len(history) == 1

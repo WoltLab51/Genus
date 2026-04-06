@@ -23,26 +23,25 @@ def default_orchestrator_toolexecutor_policy() -> TopicAclPolicy:
     """Create a default ACL policy for Orchestrator and ToolExecutor.
 
     This policy allows:
-    - Orchestrator to publish: run.* topics and tool.call.requested
-    - ToolExecutor to publish: tool.call.succeeded and tool.call.failed
+    - Orchestrator to publish: all run lifecycle topics (derived from
+      ``run_topics.ALL_RUN_TOPICS``) and ``tool.call.requested``
+    - ToolExecutor to publish: ``tool.call.succeeded`` and ``tool.call.failed``
 
     Note: This uses exact topic matching only, as TopicAclPolicy does not
-    support wildcards. Each run.* topic must be added explicitly.
+    support wildcards.  The allowed run topics are derived from
+    ``genus.run.topics.ALL_RUN_TOPICS`` so that adding a new run-lifecycle
+    constant there automatically keeps this preset complete.
 
     Returns:
         A TopicAclPolicy configured for standard Orchestrator/ToolExecutor interaction.
     """
     policy = TopicAclPolicy()
 
-    # Orchestrator permissions
+    # Orchestrator permissions – derived from ALL_RUN_TOPICS so future
+    # additions to the run-lifecycle topic constants are covered automatically.
     orchestrator_id = "Orchestrator"
-    policy.allow(orchestrator_id, run_topics.RUN_STARTED)
-    policy.allow(orchestrator_id, run_topics.RUN_COMPLETED)
-    policy.allow(orchestrator_id, run_topics.RUN_FAILED)
-    policy.allow(orchestrator_id, run_topics.RUN_STEP_PLANNED)
-    policy.allow(orchestrator_id, run_topics.RUN_STEP_STARTED)
-    policy.allow(orchestrator_id, run_topics.RUN_STEP_COMPLETED)
-    policy.allow(orchestrator_id, run_topics.RUN_STEP_FAILED)
+    for topic in run_topics.ALL_RUN_TOPICS:
+        policy.allow(orchestrator_id, topic)
     policy.allow(orchestrator_id, tool_topics.TOOL_CALL_REQUESTED)
 
     # ToolExecutor permissions

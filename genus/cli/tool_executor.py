@@ -26,7 +26,6 @@ Supported tools (whitelist)
 """
 
 import asyncio
-import inspect
 import logging
 import os
 import signal
@@ -36,101 +35,13 @@ from genus.communication.message_bus import Message
 from genus.communication.redis_message_bus import RedisMessageBus
 from genus.communication.secure_bus import SecureMessageBus
 from genus.tools import topics as tool_topics
-from genus.tools.events import tool_call_failed_message, tool_call_succeeded_message
-from genus.tools.registry import ToolRegistry, ToolSpec
-from genus.tools.impl.echo import echo
-from genus.tools.impl.add import add
-from genus.tools.impl.summarize import summarize
+from genus.tools.executor import AGENT_ID, _build_registry, _handle_tool_call
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [ToolExecutor] %(levelname)s %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-AGENT_ID = "ToolExecutor"
-
-# ---------------------------------------------------------------------------
-# Tool registry setup
-# ---------------------------------------------------------------------------
-
-def _build_registry() -> ToolRegistry:
-    """Build and populate the tool registry with standard tools.
-
-    Returns:
-        A ToolRegistry with echo, add, and summarize registered.
-    """
-    registry = ToolRegistry()
-    registry.register(ToolSpec(name="echo", handler=echo, description="Echo message back"))
-    registry.register(ToolSpec(name="add", handler=add, description="Add two integers"))
-    registry.register(
-        ToolSpec(name="summarize", handler=summarize, description="Summarize text")
-    )
-    return registry
-
-
-# ---------------------------------------------------------------------------
-# Message handler
-# ---------------------------------------------------------------------------
-
-async def _handle_tool_call(
-    bus: SecureMessageBus, registry: ToolRegistry, message: Message
-) -> None:
-    """Process a single ``tool.call.requested`` message.
-
-    Args:
-        bus: The message bus for publishing responses.
-        registry: The tool registry to look up tools.
-        message: The incoming tool.call.requested message.
-    """
-    payload = message.payload if isinstance(message.payload, dict) else {}
-    run_id: str = message.metadata.get("run_id", "")
-    step_id: str = payload.get("step_id", "")
-    tool_name: str = payload.get("tool_name", "")
-    tool_args: dict = payload.get("tool_args", {})
-
-    logger.info("Received tool.call.requested: tool=%r step_id=%s", tool_name, step_id)
-
-    # Look up the tool in the registry
-    spec = registry.get(tool_name)
-    if spec is None:
-        error = "unknown tool: {}".format(tool_name)
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-        logger.warning("Tool %r not found in registry", tool_name)
-        await bus.publish(response)
-        return
-
-    # Execute the tool handler
-    try:
-        handler = spec.handler
-        # Check if the handler is async or sync
-        if inspect.iscoroutinefunction(handler):
-            result = await handler(**tool_args)
-        else:
-            result = handler(**tool_args)
-
-        response = tool_call_succeeded_message(
-            run_id, AGENT_ID, step_id, tool_name, result
-        )
-        logger.info("Tool %r succeeded: result=%r", tool_name, result)
-    except TypeError as exc:
-        # Wrong arguments passed to the handler
-        error = "invalid arguments: {}".format(str(exc))
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-        logger.warning("Tool %r failed with invalid arguments: %s", tool_name, error)
-    except Exception as exc:
-        # Other execution errors
-        error = str(exc)
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-        logger.warning("Tool %r failed: %s", tool_name, error)
-
-    await bus.publish(response)
 
 
 # ---------------------------------------------------------------------------
