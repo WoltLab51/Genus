@@ -384,6 +384,86 @@ async def git_commit(
         )
 
 
+async def git_push(
+    workspace: RunWorkspace,
+    *,
+    remote: str = "origin",
+    branch: str,
+    force: bool = False,
+) -> ToolResult:
+    """Push a branch to a remote repository.
+
+    Args:
+        workspace: The RunWorkspace containing the git repository.
+        remote: Remote name (default "origin").
+        branch: Branch name to push.
+        force: If True, force push with --force-with-lease (safer than --force).
+
+    Returns:
+        ToolResult with success status or error.
+
+    Security:
+        - Only allowed when policy permits
+        - Uses --force-with-lease instead of --force for safety
+        - Branch and remote names validated by caller
+
+    Example::
+
+        result = await git_push(workspace, remote="origin", branch="feature/test")
+        if result.success:
+            print("Push successful")
+    """
+    try:
+        # Create policy that allows git push
+        policy = _create_git_policy()
+
+        # Build argv
+        argv = ["git", "push", remote, branch]
+        if force:
+            # Use --force-with-lease for safer force push
+            argv.append("--force-with-lease")
+
+        # Create command
+        command = SandboxCommand(
+            argv=argv,
+            cwd=".",
+        )
+
+        # Execute via sandbox
+        runner = SandboxRunner(
+            workspace=workspace,
+            policy=policy,
+            kill_switch=DEFAULT_KILL_SWITCH,
+        )
+
+        result = await runner.run(command, timeout_s=120.0)
+
+        if result.exit_code != 0:
+            return ToolResult(
+                success=False,
+                data=None,
+                error="git push failed: {}".format(result.stderr),
+            )
+
+        return ToolResult(
+            success=True,
+            data={
+                "remote": remote,
+                "branch": branch,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.exit_code,
+            },
+        )
+
+    except Exception as e:
+        return ToolResult(
+            success=False,
+            data=None,
+            error="Error pushing branch: {}".format(str(e)),
+        )
+
+
 def _create_git_policy() -> SandboxPolicy:
     """Create a SandboxPolicy configured for git operations.
 
@@ -401,6 +481,7 @@ def _create_git_policy() -> SandboxPolicy:
         ["git", "checkout", "-b"],
         ["git", "add", "-A"],
         ["git", "commit", "-m"],
+        ["git", "push"],
     ]
 
     return SandboxPolicy(

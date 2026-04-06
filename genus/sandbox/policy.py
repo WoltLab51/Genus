@@ -68,6 +68,8 @@ class SandboxPolicy:
                 ["git", "checkout", "-b"],
                 ["git", "add", "-A"],
                 ["git", "commit", "-m"],
+                # Git push commands (PR #29)
+                ["git", "push"],
             ]
 
         # Default: no environment variables allowed
