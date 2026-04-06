@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from genus.communication.message_bus import InMemoryMessageBus
+from genus.communication.message_bus import MessageBus
 from genus.dev import events as dev_events
 from genus.dev import topics as dev_topics
 from genus.memory.run_journal import RunJournal
@@ -40,8 +40,8 @@ def temp_store():
 
 @pytest.fixture
 def message_bus():
-    """Create an InMemoryMessageBus for testing."""
-    return InMemoryMessageBus()
+    """Create a MessageBus for testing."""
+    return MessageBus()
 
 
 @pytest.fixture
