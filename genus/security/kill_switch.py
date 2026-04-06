@@ -97,6 +97,31 @@ class KillSwitch:
         self._active = False
         self._actor = actor
 
+    def enable(self) -> None:
+        """Enable the kill-switch (same as deactivate for backwards compatibility).
+
+        When enabled, sandbox execution is allowed.
+        This is the inverse of activate() - when the kill-switch is NOT active,
+        execution is enabled.
+        """
+        self.deactivate()
+
+    def disable(self) -> None:
+        """Disable the kill-switch (same as activate for backwards compatibility).
+
+        When disabled, sandbox execution is blocked.
+        """
+        self.activate(reason="Sandbox execution disabled")
+
+    def assert_enabled(self) -> None:
+        """Assert that sandbox execution is enabled.
+
+        Raises:
+            RuntimeError: If sandbox execution is disabled (kill-switch is active).
+        """
+        if self._active:
+            raise RuntimeError("Sandbox execution disabled")
+
     # ------------------------------------------------------------------
     # Query
     # ------------------------------------------------------------------
@@ -120,6 +145,11 @@ class KillSwitch:
         """The set of topics that bypass the kill-switch."""
         return set(self._allowed_topics)
 
+    @property
+    def enabled(self) -> bool:
+        """Return True when sandbox execution is enabled (kill-switch is NOT active)."""
+        return not self._active
+
     # ------------------------------------------------------------------
     # Internal helper used by MessageBus
     # ------------------------------------------------------------------
@@ -139,3 +169,10 @@ class KillSwitch:
         """
         if self._active and topic not in self._allowed_topics:
             raise KillSwitchActiveError(topic=topic, reason=self._reason)
+
+
+# ---------------------------------------------------------------------------
+# Global default kill-switch instance for sandbox execution
+# ---------------------------------------------------------------------------
+
+DEFAULT_KILL_SWITCH = KillSwitch()
