@@ -13,6 +13,24 @@ communicating via the shared `MessageBus`.  Human intervention is only
 requested when the **Ask/Stop policy** detects a condition that requires
 operator confirmation.
 
+### Phase Correlation
+
+Each dev-loop phase request includes a unique **`phase_id`** in the payload
+to enable deterministic correlation between request and response messages.
+Responder agents (Builder, Reviewer) **must mirror** the `phase_id` from
+the `*.requested` message in their `*.completed` or `*.failed` response.
+
+The orchestrator uses :func:`~genus.dev.runtime.await_dev_response` to
+wait for matching responses, filtering by both `run_id` (in metadata) and
+`phase_id` (in payload).
+
+### Timeout Behavior
+
+The orchestrator waits for each phase response with a configurable timeout
+(default: 30 seconds).  If no matching response arrives within the timeout,
+a :class:`~genus.dev.runtime.DevResponseTimeoutError` is raised and the
+loop terminates with `dev.loop.failed`.
+
 ---
 
 ## Roles
@@ -196,22 +214,25 @@ ask, reason = should_ask_user(
 genus/dev/
 ├── __init__.py                # Package marker
 ├── topics.py                  # Topic string constants + ALL_DEV_TOPICS
-├── events.py                  # Message factory functions
+├── events.py                  # Message factory functions (with phase_id support)
 ├── schemas.py                 # Artifact dataclasses (PlanArtifact, etc.)
 ├── policy.py                  # Ask/Stop policy (should_ask_user)
-└── devloop_orchestrator.py    # Skeleton orchestrator (no tool execution)
+├── runtime.py                 # Runtime helpers (await_dev_response, exceptions)
+└── devloop_orchestrator.py    # Real orchestrator with await logic
 
 tests/unit/
 ├── test_dev_topics.py         # Topic constants tests
 ├── test_dev_events.py         # Factory function tests
-└── test_dev_policy.py         # Policy rule tests
+├── test_dev_policy.py         # Policy rule tests
+├── test_dev_runtime.py        # Runtime helper tests
+└── test_devloop_orchestrator_runtime.py  # Orchestrator runtime tests
 ```
 
 ---
 
 ## Constraints
 
-- **No subprocess execution** – the orchestrator skeleton publishes messages only.
+- **No subprocess execution** – the orchestrator awaits responses but does not execute tools directly.
 - **No FastAPI changes** – dev-loop contracts are transport-agnostic.
 - **No Redis required** – unit tests use the in-memory `MessageBus`.
 - **No changes to existing Orchestrator/ToolExecutor** – fully additive.
