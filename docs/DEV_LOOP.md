@@ -231,6 +231,67 @@ ask, reason = should_ask_user(
 
 ---
 
+## Reference Agent Skeletons (genus/dev/agents/)
+
+GENUS includes reference agent implementations that demonstrate the MessageBus
+communication pattern. These agents are **placeholder skeletons** – they do not
+perform actual operations (no filesystem, subprocess, or network access). They
+serve as blueprints for real agents.
+
+| Agent | Subscribes To | Publishes |
+|-------|---------------|-----------|
+| **PlannerAgent** | `dev.plan.requested` | `dev.plan.completed` or `dev.plan.failed` |
+| **BuilderAgent** | `dev.implement.requested` | `dev.implement.completed` or `dev.implement.failed` |
+| **TesterAgent** | `dev.test.requested` | `dev.test.completed` or `dev.test.failed` |
+| **ReviewerAgent** | `dev.review.requested` | `dev.review.completed` or `dev.review.failed` |
+
+All agents extend :class:`~genus.dev.agents.base.DevAgentBase`, which provides
+idempotent `start()` / `stop()` lifecycle management and subscription cleanup.
+
+### Configuration
+
+Each agent supports optional configuration for testing:
+
+- **mode**: `"ok"` (normal) or `"fail"` (simulate failure)
+- **fail_topic**: Optional topic filter for failure mode
+
+**ReviewerAgent** additionally supports:
+
+- **review_profile**: `"clean"` (no findings) or `"high_sev"` (high severity finding)
+
+### Example Usage
+
+```python
+from genus.communication.message_bus import MessageBus
+from genus.dev.agents import PlannerAgent, BuilderAgent, TesterAgent, ReviewerAgent
+from genus.dev.devloop_orchestrator import DevLoopOrchestrator
+
+bus = MessageBus()
+
+# Create and start agents
+planner = PlannerAgent(bus, mode="ok")
+builder = BuilderAgent(bus, mode="ok")
+tester = TesterAgent(bus, mode="ok")
+reviewer = ReviewerAgent(bus, review_profile="clean")
+
+planner.start()
+builder.start()
+tester.start()
+reviewer.start()
+
+# Create and run orchestrator
+orchestrator = DevLoopOrchestrator(bus, timeout_s=30.0)
+await orchestrator.run(run_id="test-run-001", goal="Implement feature X")
+
+# Clean up
+planner.stop()
+builder.stop()
+tester.stop()
+reviewer.stop()
+```
+
+---
+
 ## File Layout
 
 ```
@@ -241,7 +302,14 @@ genus/dev/
 ├── schemas.py                 # Artifact dataclasses (PlanArtifact, etc.)
 ├── policy.py                  # Ask/Stop policy (should_ask_user)
 ├── runtime.py                 # Runtime helpers (await_dev_response, exceptions)
-└── devloop_orchestrator.py    # Real orchestrator with await logic
+├── devloop_orchestrator.py    # Real orchestrator with await logic
+└── agents/                    # Reference agent skeletons
+    ├── __init__.py
+    ├── base.py                # DevAgentBase (lifecycle management)
+    ├── planner_agent.py       # PlannerAgent
+    ├── builder_agent.py       # BuilderAgent
+    ├── tester_agent.py        # TesterAgent
+    └── reviewer_agent.py      # ReviewerAgent
 
 tests/unit/
 ├── test_dev_topics.py         # Topic constants tests
@@ -249,6 +317,9 @@ tests/unit/
 ├── test_dev_policy.py         # Policy rule tests
 ├── test_dev_runtime.py        # Runtime helper tests
 └── test_devloop_orchestrator_runtime.py  # Orchestrator runtime tests
+
+tests/integration/
+└── test_devloop_with_agents.py  # End-to-end integration tests with agents
 ```
 
 ---
