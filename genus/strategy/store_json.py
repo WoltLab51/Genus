@@ -12,10 +12,20 @@ Storage Layout
 File Format
 -----------
 {
+    "version": 1,
     "profiles": {
         "default": {
             "name": "default",
             "playbook_weights": {"playbook_id": weight, ...}
+        }
+    },
+    "failure_class_weights": {
+        "test_failure": {
+            "target_failing_test_first": 3,
+            "minimize_changeset": 1
+        },
+        "timeout": {
+            "increase_timeout_once": 2
         }
     },
     "learning_history": [
@@ -97,12 +107,14 @@ class StrategyStoreJson:
         """Load the entire store from disk.
 
         Returns:
-            Dict with "profiles" and "learning_history" keys.
+            Dict with "version", "profiles", "failure_class_weights", and "learning_history" keys.
             Returns empty structure if file doesn't exist.
         """
         if not self._store_path.exists():
             return {
+                "version": 1,
                 "profiles": {},
+                "failure_class_weights": {},
                 "learning_history": []
             }
 
@@ -110,8 +122,12 @@ class StrategyStoreJson:
             with open(self._store_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 # Ensure required keys exist
+                if "version" not in data:
+                    data["version"] = 1
                 if "profiles" not in data:
                     data["profiles"] = {}
+                if "failure_class_weights" not in data:
+                    data["failure_class_weights"] = {}
                 if "learning_history" not in data:
                     data["learning_history"] = []
                 return data
@@ -121,7 +137,9 @@ class StrategyStoreJson:
                 self._store_path, exc
             )
             return {
+                "version": 1,
                 "profiles": {},
+                "failure_class_weights": {},
                 "learning_history": []
             }
 
@@ -261,3 +279,82 @@ class StrategyStoreJson:
         data["learning_history"] = []
         self._save_store(data)
         logger.info("Cleared learning history")
+
+    # ------------------------------------------------------------------
+    # Failure class weights operations
+    # ------------------------------------------------------------------
+
+    def get_failure_class_weight(
+        self,
+        failure_class: str,
+        playbook_id: str,
+    ) -> int:
+        """Get weight for a specific playbook in a failure class context.
+
+        Args:
+            failure_class: The failure classification (e.g., "test_failure").
+            playbook_id: The playbook identifier.
+
+        Returns:
+            The weight for this playbook in this failure class (default 0).
+        """
+        data = self._load_store()
+        failure_weights = data.get("failure_class_weights", {})
+        class_weights = failure_weights.get(failure_class, {})
+        return class_weights.get(playbook_id, 0)
+
+    def set_failure_class_weight(
+        self,
+        failure_class: str,
+        playbook_id: str,
+        weight: int,
+    ) -> None:
+        """Set weight for a specific playbook in a failure class context.
+
+        Args:
+            failure_class: The failure classification (e.g., "test_failure").
+            playbook_id: The playbook identifier.
+            weight: The weight to set (integer, typically -20 to +20).
+        """
+        data = self._load_store()
+
+        if "failure_class_weights" not in data:
+            data["failure_class_weights"] = {}
+
+        if failure_class not in data["failure_class_weights"]:
+            data["failure_class_weights"][failure_class] = {}
+
+        data["failure_class_weights"][failure_class][playbook_id] = weight
+        self._save_store(data)
+
+        logger.debug(
+            "Set failure_class_weight: %s / %s = %d",
+            failure_class, playbook_id, weight
+        )
+
+    def get_all_failure_class_weights(
+        self,
+        failure_class: str,
+    ) -> Dict[str, int]:
+        """Get all playbook weights for a specific failure class.
+
+        Args:
+            failure_class: The failure classification.
+
+        Returns:
+            Dict mapping playbook_id to weight for this failure class.
+            Returns empty dict if no weights exist for this failure class.
+        """
+        data = self._load_store()
+        failure_weights = data.get("failure_class_weights", {})
+        return dict(failure_weights.get(failure_class, {}))
+
+    def clear_failure_class_weights(self) -> None:
+        """Clear all failure_class_weights.
+
+        Useful for testing or reset scenarios.
+        """
+        data = self._load_store()
+        data["failure_class_weights"] = {}
+        self._save_store(data)
+        logger.info("Cleared all failure_class_weights")
