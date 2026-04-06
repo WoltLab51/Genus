@@ -29,10 +29,11 @@ If any phase fails, the corresponding ``*.failed`` event is published
 and the loop terminates with ``dev.loop.failed``.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from genus.communication.message_bus import MessageBus
-from genus.dev import events, topics  # noqa: F401  (topics imported for transparency)
+from genus.dev import events
 from genus.dev.policy import should_ask_user
 
 
@@ -73,9 +74,7 @@ class DevLoopOrchestrator:
             constraints:  Optional list of constraints.
             context:      Optional context dict (e.g. repo, branch).
         """
-        import asyncio
-
-        self._run_async(
+        DevLoopOrchestrator._run_async(
             self._start_async(run_id, goal, requirements, constraints, context)
         )
 
@@ -179,8 +178,6 @@ class DevLoopOrchestrator:
     @staticmethod
     def _run_async(coro: Any) -> None:
         """Run *coro* in an event loop, handling both running and idle loops."""
-        import asyncio
-
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
