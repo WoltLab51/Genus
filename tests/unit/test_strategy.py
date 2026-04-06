@@ -25,6 +25,8 @@ from genus.strategy.learning import (
     reset_learning,
     SCORE_SUCCESS_THRESHOLD,
     SCORE_FAILURE_THRESHOLD,
+    WEIGHT_MIN,
+    WEIGHT_MAX,
 )
 
 
@@ -560,3 +562,85 @@ def test_reset_learning_keep_history():
         # History should still exist
         history = store.get_learning_history()
         assert len(history) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test selector cache invalidation
+# ---------------------------------------------------------------------------
+
+def test_selector_cache_invalidated_after_select():
+    """After select_strategy(), _profile is None (cache cleared)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = StrategyStoreJson(base_dir=tmpdir)
+        selector = StrategySelector(store=store)
+
+        selector.select_strategy(
+            run_id="test_run",
+            phase="fix",
+            iteration=1,
+            evaluation_artifact=None,
+        )
+
+        assert selector._profile is None
+
+
+# ---------------------------------------------------------------------------
+# Test weight clamping
+# ---------------------------------------------------------------------------
+
+def test_learning_py_weight_clamping_upper():
+    """apply_learning_rule() clamps weights to WEIGHT_MAX."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = StrategyStoreJson(base_dir=tmpdir)
+
+        # Set weight near the ceiling so a success boost would exceed WEIGHT_MAX
+        profile = StrategyProfile(
+            name="default",
+            playbook_weights={PlaybookId.DEFAULT: WEIGHT_MAX - 1}
+        )
+        store.save_profile(profile)
+
+        decision = StrategyDecision(
+            run_id="test_run",
+            phase="fix",
+            iteration=1,
+            selected_playbook=PlaybookId.DEFAULT,
+            candidates=[PlaybookId.DEFAULT],
+            reason="test",
+            derived_from={},
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        apply_learning_rule(store=store, decision=decision, outcome_score=80)
+
+        updated = store.get_profile("default")
+        assert updated.playbook_weights[PlaybookId.DEFAULT] <= WEIGHT_MAX
+
+
+def test_learning_py_weight_clamping_lower():
+    """apply_learning_rule() clamps weights to WEIGHT_MIN."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = StrategyStoreJson(base_dir=tmpdir)
+
+        # Set weight near the floor so a penalty would go below WEIGHT_MIN
+        profile = StrategyProfile(
+            name="default",
+            playbook_weights={PlaybookId.DEFAULT: WEIGHT_MIN + 1}
+        )
+        store.save_profile(profile)
+
+        decision = StrategyDecision(
+            run_id="test_run",
+            phase="fix",
+            iteration=1,
+            selected_playbook=PlaybookId.DEFAULT,
+            candidates=[PlaybookId.DEFAULT],
+            reason="test",
+            derived_from={},
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        apply_learning_rule(store=store, decision=decision, outcome_score=30)
+
+        updated = store.get_profile("default")
+        assert updated.playbook_weights[PlaybookId.DEFAULT] >= WEIGHT_MIN

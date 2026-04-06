@@ -155,6 +155,10 @@ class StrategySelector:
             run_id, phase, iteration, selected_playbook, selected_score
         )
 
+        # Invalidate profile cache so the next call always reads a fresh profile
+        # from the store (picks up any learning updates between calls).
+        self._profile = None
+
         return decision
 
     # ------------------------------------------------------------------
