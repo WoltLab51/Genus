@@ -9,6 +9,11 @@ external APIs.**  It is a skeleton that shows how the Orchestrator
 would publish phase events in sequence, and where the Ask/Stop policy
 gate sits.
 
+Usage::
+
+    orchestrator = DevLoopOrchestrator(bus)
+    await orchestrator.run(run_id, goal="implement feature X")
+
 Typical flow::
 
     dev.loop.started
@@ -29,7 +34,6 @@ If any phase fails, the corresponding ``*.failed`` event is published
 and the loop terminates with ``dev.loop.failed``.
 """
 
-import asyncio
 from typing import Any, Dict, List, Optional
 
 from genus.communication.message_bus import MessageBus
@@ -39,6 +43,11 @@ from genus.dev.policy import should_ask_user
 
 class DevLoopOrchestrator:
     """Skeleton orchestrator that publishes dev-loop phase messages.
+
+    The public entrypoint is the async :meth:`run` coroutine.  There is no
+    synchronous wrapper: callers must ``await`` this method inside their own
+    event loop.  This keeps the orchestrator side-effect-free when
+    instantiated and avoids hidden loop creation.
 
     Args:
         bus:       The shared :class:`~genus.communication.message_bus.MessageBus`
@@ -51,10 +60,10 @@ class DevLoopOrchestrator:
         self._sender_id = sender_id
 
     # ------------------------------------------------------------------
-    # Public entry point
+    # Public async entrypoint
     # ------------------------------------------------------------------
 
-    def start(
+    async def run(
         self,
         run_id: str,
         goal: str,
@@ -64,29 +73,18 @@ class DevLoopOrchestrator:
     ) -> None:
         """Publish the full dev-loop message sequence (no tool execution).
 
-        This method illustrates the expected message order.  In a real
-        implementation each step would await a response before proceeding.
+        This coroutine illustrates the expected message order.  In a real
+        implementation each step would await a response from the Builder or
+        Reviewer before proceeding.
 
         Args:
             run_id:       Unique run identifier for this loop.
             goal:         Human-readable goal/objective.
             requirements: Optional list of acceptance requirements.
             constraints:  Optional list of constraints.
-            context:      Optional context dict (e.g. repo, branch).
+            context:      Optional context dict (e.g. repo, branch); always
+                          normalised to an empty dict if ``None``.
         """
-        DevLoopOrchestrator._run_async(
-            self._start_async(run_id, goal, requirements, constraints, context)
-        )
-
-    async def _start_async(
-        self,
-        run_id: str,
-        goal: str,
-        requirements: Optional[List[str]],
-        constraints: Optional[List[str]],
-        context: Optional[Dict[str, Any]],
-    ) -> None:
-        """Async implementation of :meth:`start`."""
         await self._bus.publish(
             events.dev_loop_started_message(
                 run_id, self._sender_id, goal, context=context
@@ -170,21 +168,3 @@ class DevLoopOrchestrator:
                 summary="Skeleton loop completed without tool execution.",
             )
         )
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _run_async(coro: Any) -> None:
-        """Run *coro* in an event loop, handling both running and idle loops."""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        if loop.is_running():
-            loop.create_task(coro)
-        else:
-            loop.run_until_complete(coro)

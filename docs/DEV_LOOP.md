@@ -119,7 +119,14 @@ If any phase publishes a `*.failed` event, the Orchestrator publishes
 
 ---
 
-## Artifact Schemas
+### Factory notes
+
+- **`context`** in `dev_loop_started_message` is always normalised to a plain
+  `dict` – it is never `None` in the produced message payload.  Pass
+  `context={"repo": "WoltLab51/Genus", "branch": "main"}` or omit the
+  argument to get an empty dict `{}`.
+
+
 
 Artifact shapes are documented as dataclasses in `genus/dev/schemas.py`.
 Events carry plain `dict` payloads (JSON-compatible); these dataclasses

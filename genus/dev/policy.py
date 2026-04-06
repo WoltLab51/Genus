@@ -43,8 +43,9 @@ def should_ask_user(
     Args:
         findings:        List of review/test findings.  Each finding is a
                          dict and may contain a ``"severity"`` key (str).
-        risks:           List of identified risk dicts (reserved for future
-                         rules; not currently used to trigger ask).
+        risks:           List of identified risk dicts.  **Currently unused** –
+                         reserved for future rules (e.g. risk-severity
+                         threshold).  Pass an empty list if not applicable.
         scope_change:    True if the iteration would change the agreed scope.
         security_impact: True if the iteration has a security-relevant effect.
 
