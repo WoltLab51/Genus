@@ -48,18 +48,26 @@ class SandboxPolicy:
             default_timeout_s: Default timeout in seconds.
             max_timeout_s: Maximum allowed timeout in seconds.
         """
-        # Default allowed executables for Python/pytest
+        # Default allowed executables for Python/pytest and git
         if allowed_executables is None:
-            allowed_executables = {"python", "python.exe", "pytest"}
+            allowed_executables = {"python", "python.exe", "pytest", "git", "git.exe"}
 
         # Default allowed argv prefixes
         if allowed_argv_prefixes is None:
             allowed_argv_prefixes = [
+                # Python/pytest commands
                 ["python", "-m", "pytest"],
                 ["python", "-m", "ruff"],
                 ["python", "-c"],
                 ["python", "--version"],
                 ["pytest"],
+                # Git commands (PR #28)
+                ["git", "status", "--porcelain"],
+                ["git", "diff"],
+                ["git", "diff", "--staged"],
+                ["git", "checkout", "-b"],
+                ["git", "add", "-A"],
+                ["git", "commit", "-m"],
             ]
 
         # Default: no environment variables allowed
