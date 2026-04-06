@@ -35,68 +35,13 @@ from genus.communication.message_bus import Message
 from genus.communication.redis_message_bus import RedisMessageBus
 from genus.communication.secure_bus import SecureMessageBus
 from genus.tools import topics as tool_topics
-from genus.tools.events import tool_call_failed_message, tool_call_succeeded_message
+from genus.tools.executor import AGENT_ID, _build_registry, _handle_tool_call
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [ToolExecutor] %(levelname)s %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-AGENT_ID = "ToolExecutor"
-
-# ---------------------------------------------------------------------------
-# Tool registry
-# ---------------------------------------------------------------------------
-
-SUPPORTED_TOOLS = {"echo", "add", "summarize"}
-
-
-def _run_tool(tool_name: str, tool_args: dict):
-    """Execute *tool_name* with *tool_args* and return the result.
-
-    Raises:
-        KeyError:  If a required argument is missing.
-        ValueError: If argument types are invalid.
-        LookupError: If the tool is not in the whitelist.
-    """
-    if tool_name == "echo":
-        return tool_args.get("message", "")
-    if tool_name == "add":
-        return int(tool_args.get("a", 0)) + int(tool_args.get("b", 0))
-    if tool_name == "summarize":
-        return "summary: " + str(tool_args.get("text", ""))
-    raise LookupError(f"Unknown tool: {tool_name!r}")
-
-
-# ---------------------------------------------------------------------------
-# Message handler
-# ---------------------------------------------------------------------------
-
-async def _handle_tool_call(bus: SecureMessageBus, message: Message) -> None:
-    """Process a single ``tool.call.requested`` message."""
-    payload = message.payload if isinstance(message.payload, dict) else {}
-    run_id: str = message.metadata.get("run_id", "")
-    step_id: str = payload.get("step_id", "")
-    tool_name: str = payload.get("tool_name", "")
-    tool_args: dict = payload.get("tool_args", {})
-
-    logger.info("Received tool.call.requested: tool=%r step_id=%s", tool_name, step_id)
-
-    try:
-        result = _run_tool(tool_name, tool_args)
-        response = tool_call_succeeded_message(
-            run_id, AGENT_ID, step_id, tool_name, result
-        )
-        logger.info("Tool %r succeeded: result=%r", tool_name, result)
-    except Exception as exc:
-        error = str(exc)
-        response = tool_call_failed_message(
-            run_id, AGENT_ID, step_id, tool_name, error
-        )
-        logger.warning("Tool %r failed: %s", tool_name, error)
-
-    await bus.publish(response)
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +57,12 @@ async def main() -> None:
 
     bus = SecureMessageBus(inner_bus)
 
+    # Build the tool registry
+    registry = _build_registry()
+    logger.info("Registered tools: %s", ", ".join(registry.list_names()))
+
     async def handler(message: Message) -> None:
-        await _handle_tool_call(bus, message)
+        await _handle_tool_call(bus, registry, message)
 
     bus.subscribe(tool_topics.TOOL_CALL_REQUESTED, AGENT_ID, handler)
 
@@ -123,7 +72,7 @@ async def main() -> None:
     logger.info(
         "ToolExecutor ready.  Listening on %r.  Supported tools: %s",
         tool_topics.TOOL_CALL_REQUESTED,
-        ", ".join(sorted(SUPPORTED_TOOLS)),
+        ", ".join(registry.list_names()),
     )
 
     # Keep running until SIGINT/SIGTERM
