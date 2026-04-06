@@ -26,6 +26,7 @@ Supported tools (whitelist)
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import signal
@@ -36,6 +37,10 @@ from genus.communication.redis_message_bus import RedisMessageBus
 from genus.communication.secure_bus import SecureMessageBus
 from genus.tools import topics as tool_topics
 from genus.tools.events import tool_call_failed_message, tool_call_succeeded_message
+from genus.tools.registry import ToolRegistry, ToolSpec
+from genus.tools.impl.echo import echo
+from genus.tools.impl.add import add
+from genus.tools.impl.summarize import summarize
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,35 +51,38 @@ logger = logging.getLogger(__name__)
 AGENT_ID = "ToolExecutor"
 
 # ---------------------------------------------------------------------------
-# Tool registry
+# Tool registry setup
 # ---------------------------------------------------------------------------
 
-SUPPORTED_TOOLS = {"echo", "add", "summarize"}
+def _build_registry() -> ToolRegistry:
+    """Build and populate the tool registry with standard tools.
 
-
-def _run_tool(tool_name: str, tool_args: dict):
-    """Execute *tool_name* with *tool_args* and return the result.
-
-    Raises:
-        KeyError:  If a required argument is missing.
-        ValueError: If argument types are invalid.
-        LookupError: If the tool is not in the whitelist.
+    Returns:
+        A ToolRegistry with echo, add, and summarize registered.
     """
-    if tool_name == "echo":
-        return tool_args.get("message", "")
-    if tool_name == "add":
-        return int(tool_args.get("a", 0)) + int(tool_args.get("b", 0))
-    if tool_name == "summarize":
-        return "summary: " + str(tool_args.get("text", ""))
-    raise LookupError(f"Unknown tool: {tool_name!r}")
+    registry = ToolRegistry()
+    registry.register(ToolSpec(name="echo", handler=echo, description="Echo message back"))
+    registry.register(ToolSpec(name="add", handler=add, description="Add two integers"))
+    registry.register(
+        ToolSpec(name="summarize", handler=summarize, description="Summarize text")
+    )
+    return registry
 
 
 # ---------------------------------------------------------------------------
 # Message handler
 # ---------------------------------------------------------------------------
 
-async def _handle_tool_call(bus: SecureMessageBus, message: Message) -> None:
-    """Process a single ``tool.call.requested`` message."""
+async def _handle_tool_call(
+    bus: SecureMessageBus, registry: ToolRegistry, message: Message
+) -> None:
+    """Process a single ``tool.call.requested`` message.
+
+    Args:
+        bus: The message bus for publishing responses.
+        registry: The tool registry to look up tools.
+        message: The incoming tool.call.requested message.
+    """
     payload = message.payload if isinstance(message.payload, dict) else {}
     run_id: str = message.metadata.get("run_id", "")
     step_id: str = payload.get("step_id", "")
@@ -83,13 +91,39 @@ async def _handle_tool_call(bus: SecureMessageBus, message: Message) -> None:
 
     logger.info("Received tool.call.requested: tool=%r step_id=%s", tool_name, step_id)
 
+    # Look up the tool in the registry
+    spec = registry.get(tool_name)
+    if spec is None:
+        error = "unknown tool: {}".format(tool_name)
+        response = tool_call_failed_message(
+            run_id, AGENT_ID, step_id, tool_name, error
+        )
+        logger.warning("Tool %r not found in registry", tool_name)
+        await bus.publish(response)
+        return
+
+    # Execute the tool handler
     try:
-        result = _run_tool(tool_name, tool_args)
+        handler = spec.handler
+        # Check if the handler is async or sync
+        if inspect.iscoroutinefunction(handler):
+            result = await handler(**tool_args)
+        else:
+            result = handler(**tool_args)
+
         response = tool_call_succeeded_message(
             run_id, AGENT_ID, step_id, tool_name, result
         )
         logger.info("Tool %r succeeded: result=%r", tool_name, result)
+    except TypeError as exc:
+        # Wrong arguments passed to the handler
+        error = "invalid arguments: {}".format(str(exc))
+        response = tool_call_failed_message(
+            run_id, AGENT_ID, step_id, tool_name, error
+        )
+        logger.warning("Tool %r failed with invalid arguments: %s", tool_name, error)
     except Exception as exc:
+        # Other execution errors
         error = str(exc)
         response = tool_call_failed_message(
             run_id, AGENT_ID, step_id, tool_name, error
@@ -112,8 +146,12 @@ async def main() -> None:
 
     bus = SecureMessageBus(inner_bus)
 
+    # Build the tool registry
+    registry = _build_registry()
+    logger.info("Registered tools: %s", ", ".join(registry.list_names()))
+
     async def handler(message: Message) -> None:
-        await _handle_tool_call(bus, message)
+        await _handle_tool_call(bus, registry, message)
 
     bus.subscribe(tool_topics.TOOL_CALL_REQUESTED, AGENT_ID, handler)
 
@@ -123,7 +161,7 @@ async def main() -> None:
     logger.info(
         "ToolExecutor ready.  Listening on %r.  Supported tools: %s",
         tool_topics.TOOL_CALL_REQUESTED,
-        ", ".join(sorted(SUPPORTED_TOOLS)),
+        ", ".join(registry.list_names()),
     )
 
     # Keep running until SIGINT/SIGTERM
