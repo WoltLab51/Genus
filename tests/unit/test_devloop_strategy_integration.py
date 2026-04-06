@@ -276,3 +276,48 @@ async def test_no_strategy_selector_backwards_compat():
     fix_payload = responder.fix_payloads[0]
     assert "strategy" not in fix_payload
     assert "strategy_reason" not in fix_payload
+
+
+@pytest.mark.asyncio
+async def test_failure_class_none_falls_back_to_test_failure():
+    """When test_report has no 'failure_class' key, the orchestrator
+    falls back to 'test_failure' when calling select_strategy()."""
+    bus = MessageBus()
+    mock_selector = MagicMock()
+    mock_selector.select_strategy.return_value = _make_fake_decision()
+
+    orchestrator = DevLoopOrchestrator(
+        bus,
+        sender_id="TestOrch",
+        timeout_s=2.0,
+        strategy_selector=mock_selector,
+    )
+
+    # FakeResponder with fail_first_test=True but report has NO 'failure_class' key
+    responder = FakeResponder(bus, RUN_ID, fail_first_test=True)
+    # Patch the test report to omit 'failure_class'
+    original_respond_test = responder._respond_test
+
+    async def patched_respond_test(phase_id: str):
+        from genus.dev.events import dev_test_completed_message
+        await asyncio.sleep(0.01)
+        if responder._test_call_count == 1:
+            report = {
+                "passed": 0, "failed": 1,
+                "summary": "1 test failed",
+                "failing_tests": ["test_foo"],
+                # deliberately NO 'failure_class' key
+            }
+        else:
+            report = {"passed": 5, "failed": 0, "summary": "All tests passed", "failing_tests": []}
+        await bus.publish(dev_test_completed_message(RUN_ID, "responder", report, phase_id=phase_id))
+
+    responder._respond_test = patched_respond_test
+    responder.start()
+
+    await orchestrator.run(RUN_ID, goal="test goal")
+
+    mock_selector.select_strategy.assert_called_once()
+    call_kwargs = mock_selector.select_strategy.call_args
+    # Fallback must be 'test_failure'
+    assert call_kwargs.kwargs["evaluation_artifact"]["failure_class"] == "test_failure"
