@@ -20,9 +20,30 @@ to enable deterministic correlation between request and response messages.
 Responder agents (Builder, Reviewer) **must mirror** the `phase_id` from
 the `*.requested` message in their `*.completed` or `*.failed` response.
 
-The orchestrator uses :func:`~genus.dev.runtime.await_dev_response` to
-wait for matching responses, filtering by both `run_id` (in metadata) and
+The orchestrator uses :class:`~genus.dev.runtime.DevResponseAwaiter` context
+manager to subscribe before publishing (avoiding race conditions), then waits
+for matching responses filtered by both `run_id` (in metadata) and
 `phase_id` (in payload).
+
+**Example:**
+
+```python
+from genus.dev.runtime import DevResponseAwaiter
+
+async with DevResponseAwaiter(
+    bus, run_id=run_id, phase_id=phase_id,
+    completed_topic=topics.DEV_PLAN_COMPLETED,
+    failed_topic=topics.DEV_PLAN_FAILED,
+    timeout_s=30.0
+) as awaiter:
+    # Subscriptions are active - safe to publish
+    await bus.publish(plan_request_message)
+    # Wait for response
+    response = await awaiter.wait()
+```
+
+The legacy :func:`~genus.dev.runtime.await_dev_response` function is still
+available but may have race conditions in synchronous test scenarios.
 
 ### Timeout Behavior
 
