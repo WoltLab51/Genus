@@ -115,8 +115,8 @@ class StrategySelector:
             )
             scores[playbook_id] = score
 
-        # Select highest-scoring playbook
-        selected_playbook = max(candidates, key=lambda p: scores[p])
+        # Select highest-scoring playbook (deterministic tie-break: lexicographic)
+        selected_playbook = max(candidates, key=lambda p: (scores[p], p))
         selected_score = scores[selected_playbook]
 
         # Build reason
@@ -176,11 +176,12 @@ class StrategySelector:
 
         Scoring factors:
         1. Profile weight (base score)
-        2. Recommended for failure_class (+20)
-        3. Recommended for root_cause_hint (+15)
-        4. In strategy_recommendations (+30)
-        5. Learning history bonus (up to +10)
-        6. First iteration bonus for DEFAULT (+5)
+        2. Failure class learned weight (from StrategyLearningAgent, v1)
+        3. Recommended for failure_class (+20)
+        4. Recommended for root_cause_hint (+15)
+        5. In strategy_recommendations (+30)
+        6. Learning history bonus (up to +10)
+        7. First iteration bonus for DEFAULT (+5)
 
         Args:
             playbook_id: The playbook to score.
@@ -198,25 +199,32 @@ class StrategySelector:
         # 1. Profile weight
         score += profile.playbook_weights.get(playbook_id, 0)
 
-        # 2. Recommended for failure_class
+        # 2. Failure class learned weight (deterministic learning from StrategyLearningAgent)
+        if failure_class:
+            failure_class_weight = self._store.get_failure_class_weight(
+                failure_class, playbook_id
+            )
+            score += failure_class_weight
+
+        # 3. Recommended for failure_class
         if failure_class:
             playbook = PLAYBOOKS.get(playbook_id, {})
             recommended_for = playbook.get("recommended_for", [])
             if failure_class in recommended_for:
                 score += 20
 
-        # 3. Recommended for root_cause_hint
+        # 4. Recommended for root_cause_hint
         if root_cause_hint:
             playbook = PLAYBOOKS.get(playbook_id, {})
             recommended_for = playbook.get("recommended_for", [])
             if root_cause_hint in recommended_for:
                 score += 15
 
-        # 4. In strategy_recommendations from evaluation
+        # 5. In strategy_recommendations from evaluation
         if playbook_id in strategy_recommendations:
             score += 30
 
-        # 5. Learning history bonus
+        # 6. Learning history bonus
         if failure_class or root_cause_hint:
             learning_bonus = self._get_learning_bonus(
                 playbook_id=playbook_id,
@@ -225,7 +233,7 @@ class StrategySelector:
             )
             score += learning_bonus
 
-        # 6. First iteration bonus for DEFAULT
+        # 7. First iteration bonus for DEFAULT
         if iteration is None and playbook_id == PlaybookId.DEFAULT:
             score += 5
 
