@@ -35,7 +35,7 @@ and terminates.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from genus.communication.message_bus import MessageBus
 from genus.dev import events, topics
@@ -45,6 +45,10 @@ from genus.dev.runtime import (
     DevResponseFailedError,
     DevResponseTimeoutError,
 )
+
+if TYPE_CHECKING:
+    from genus.strategy.selector import StrategySelector
+    from genus.memory.run_journal import RunJournal
 
 
 def _derive_recommendations(test_report: dict) -> list:
@@ -99,8 +103,8 @@ class DevLoopOrchestrator:
         timeout_s: float = 30.0,
         max_iterations: int = 3,
         commit_each_iteration: bool = True,
-        strategy_selector: Optional[Any] = None,
-        run_journal: Optional[Any] = None,
+        strategy_selector: "Optional[StrategySelector]" = None,
+        run_journal: "Optional[RunJournal]" = None,
     ) -> None:
         self._bus = bus
         self._sender_id = sender_id
