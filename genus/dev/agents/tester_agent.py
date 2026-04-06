@@ -8,7 +8,7 @@ This is a reference skeleton agent – it does not perform actual testing.
 It demonstrates the MessageBus-based communication pattern.
 """
 
-from typing import List, Literal, Optional, Tuple
+from typing import Awaitable, Callable, List, Literal, Optional, Tuple
 from genus.communication.message_bus import Message, MessageBus
 from genus.dev import events, topics
 from genus.dev.agents.base import DevAgentBase
@@ -43,7 +43,7 @@ class TesterAgent(DevAgentBase):
         self._mode = mode
         self._fail_topic = fail_topic
 
-    def _subscribe_topics(self) -> List[Tuple[str, any]]:
+    def _subscribe_topics(self) -> List[Tuple[str, Callable[[Message], Awaitable[None]]]]:
         """Register handler for dev.test.requested."""
         return [(topics.DEV_TEST_REQUESTED, self._handle_test_requested)]
 

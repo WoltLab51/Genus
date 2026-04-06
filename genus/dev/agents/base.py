@@ -5,8 +5,8 @@ Provides a reusable base class for dev-loop agents with idempotent
 subscription management and graceful lifecycle handling.
 """
 
-from typing import List, Tuple
-from genus.communication.message_bus import MessageBus
+from typing import Awaitable, Callable, List, Tuple
+from genus.communication.message_bus import Message, MessageBus
 
 
 class DevAgentBase:
@@ -77,7 +77,7 @@ class DevAgentBase:
         self._subscriptions.clear()
         self._started = False
 
-    def _subscribe_topics(self) -> List[Tuple[str, any]]:
+    def _subscribe_topics(self) -> List[Tuple[str, Callable[[Message], Awaitable[None]]]]:
         """Override in subclasses to register topic handlers.
 
         Returns:

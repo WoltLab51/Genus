@@ -9,7 +9,7 @@ It demonstrates the MessageBus-based communication pattern and supports
 configurable review profiles for testing Ask/Stop policy.
 """
 
-from typing import List, Literal, Optional, Tuple
+from typing import Awaitable, Callable, List, Literal, Optional, Tuple
 from genus.communication.message_bus import Message, MessageBus
 from genus.dev import events, topics
 from genus.dev.agents.base import DevAgentBase
@@ -53,7 +53,7 @@ class ReviewerAgent(DevAgentBase):
         self._fail_topic = fail_topic
         self._review_profile = review_profile
 
-    def _subscribe_topics(self) -> List[Tuple[str, any]]:
+    def _subscribe_topics(self) -> List[Tuple[str, Callable[[Message], Awaitable[None]]]]:
         """Register handler for dev.review.requested."""
         return [(topics.DEV_REVIEW_REQUESTED, self._handle_review_requested)]
 
