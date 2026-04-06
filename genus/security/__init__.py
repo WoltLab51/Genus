@@ -8,7 +8,7 @@ Also exports ACL presets for common scenarios.
 """
 
 from genus.security.topic_acl import TopicAclPolicy, TopicPermissionError
-from genus.security.kill_switch import KillSwitch, KillSwitchActiveError
+from genus.security.kill_switch import KillSwitch, KillSwitchActiveError, DEFAULT_KILL_SWITCH
 from genus.security.acl_presets import default_orchestrator_toolexecutor_policy
 
 __all__ = [
@@ -16,5 +16,6 @@ __all__ = [
     "TopicPermissionError",
     "KillSwitch",
     "KillSwitchActiveError",
+    "DEFAULT_KILL_SWITCH",
     "default_orchestrator_toolexecutor_policy",
 ]
