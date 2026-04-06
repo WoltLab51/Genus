@@ -60,7 +60,7 @@ class TestRunEvaluatorCompleted:
         assert artifact.failure_class is None
         assert artifact.root_cause_hint is None
         assert len(artifact.highlights) > 0
-        assert "Completed" in artifact.highlights[0] or "first try" in str(artifact.highlights)
+        assert "without fix iterations" in str(artifact.highlights)
 
     def test_completed_run_with_iterations_lower_score(self):
         """Completed run with iterations should have lower score."""

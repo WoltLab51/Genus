@@ -9,6 +9,7 @@ Covers:
 - Saving evaluation artifacts
 - Publishing meta.evaluation.completed events
 - Handling edge cases (missing run_id, non-existent runs)
+- Error logging when evaluation fails
 """
 
 import tempfile
@@ -372,5 +373,47 @@ class TestJournalEventLogging:
         assert len(events) == 1
         assert events[0].summary.startswith("Evaluation completed")
         assert "score" in events[0].data
+
+        agent.stop()
+
+    @pytest.mark.asyncio
+    async def test_logs_evaluation_failed_event(self, message_bus, temp_store):
+        """Should log evaluation_failed event when evaluation raises exception."""
+        from genus.meta.evaluator import RunEvaluator
+
+        run_id = "test-run-6"
+
+        journal = RunJournal(run_id, temp_store)
+        journal.initialize(goal="Test goal")
+
+        # Create a mock evaluator that always raises an exception
+        class FailingEvaluator(RunEvaluator):
+            def evaluate(self, inp):
+                raise ValueError("Test error for logging")
+
+        agent = EvaluationAgent(
+            message_bus,
+            "test-evaluator",
+            temp_store,
+            evaluator=FailingEvaluator(),
+        )
+        agent.start()
+
+        await message_bus.publish(
+            dev_events.dev_loop_completed_message(
+                run_id=run_id,
+                sender_id="test-orchestrator",
+            )
+        )
+
+        # Check for evaluation_failed event in journal
+        events = journal.get_events(
+            phase="meta",
+            event_type="evaluation_failed",
+        )
+        assert len(events) == 1
+        assert "ValueError" in events[0].summary
+        assert "error" in events[0].data
+        assert "Test error for logging" in events[0].data["error"]
 
         agent.stop()

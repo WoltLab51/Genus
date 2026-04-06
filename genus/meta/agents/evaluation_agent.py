@@ -142,8 +142,20 @@ class EvaluationAgent(DevAgentBase):
 
         except Exception as e:
             # Log error but don't fail - evaluation is best-effort
-            # In production, might want to log this to journal
-            pass
+            # Log to journal for debugging and visibility
+            try:
+                journal.log_event(
+                    phase="meta",
+                    event_type="evaluation_failed",
+                    summary=f"Evaluation failed: {type(e).__name__}",
+                    data={
+                        "error": str(e)[:500],
+                        "error_type": type(e).__name__,
+                    },
+                )
+            except Exception:
+                # If even logging fails, silently continue
+                pass
 
     def _build_evaluation_input(
         self,
@@ -166,17 +178,22 @@ class EvaluationAgent(DevAgentBase):
         # Determine final status from trigger message topic
         final_status = "completed" if trigger_msg.topic == dev_topics.DEV_LOOP_COMPLETED else "failed"
 
-        # Count iterations from fix events
-        fix_events = journal.get_events(event_type="started", phase="fix")
-        iterations_used = len(fix_events)
-
-        # Load test report artifacts
+        # Load test report artifacts first
         test_artifact_ids = journal.list_artifacts(artifact_type="test_report")
         test_reports = []
         for artifact_id in test_artifact_ids:
             artifact = journal.load_artifact(artifact_id)
             if artifact:
                 test_reports.append(artifact.payload)
+
+        # Count iterations from fix events
+        fix_events = journal.get_events(event_type="started", phase="fix")
+        iterations_used = len(fix_events)
+
+        # Fallback: if no fix events logged, estimate from test reports
+        # This assumes first test is baseline, subsequent tests are after fixes
+        if iterations_used == 0 and len(test_reports) > 1:
+            iterations_used = max(0, len(test_reports) - 1)
 
         # Build evaluation input
         eval_input = EvaluationInput(

@@ -56,8 +56,10 @@ class RunEvaluator:
         score -= iteration_penalty
         if inp.iterations_used > 0:
             issues.append(f"Used {inp.iterations_used} iteration(s) to complete")
-        if inp.iterations_used == 0 or inp.iterations_used == 1:
-            highlights.append("Completed with minimal iterations")
+        if inp.iterations_used == 0:
+            highlights.append("Completed without fix iterations")
+        elif inp.iterations_used == 1:
+            highlights.append("Completed after one fix iteration")
 
         # Determine failure class and root cause
         failure_class = None
