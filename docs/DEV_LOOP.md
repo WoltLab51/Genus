@@ -20,30 +20,32 @@ to enable deterministic correlation between request and response messages.
 Responder agents (Builder, Reviewer) **must mirror** the `phase_id` from
 the `*.requested` message in their `*.completed` or `*.failed` response.
 
-The orchestrator uses :class:`~genus.dev.runtime.DevResponseAwaiter` context
-manager to subscribe before publishing (avoiding race conditions), then waits
-for matching responses filtered by both `run_id` (in metadata) and
-`phase_id` (in payload).
+The orchestrator uses :func:`~genus.dev.runtime.listen_for_dev_response` to
+subscribe before publishing, then waits for matching responses filtered by
+both `run_id` (in metadata) and `phase_id` (in payload).
 
-**Example:**
+**Example - Listen-before-publish pattern:**
 
 ```python
-from genus.dev.runtime import DevResponseAwaiter
+from genus.dev.runtime import listen_for_dev_response
 
-async with DevResponseAwaiter(
+# Create listener - subscribes immediately
+listener = listen_for_dev_response(
     bus, run_id=run_id, phase_id=phase_id,
     completed_topic=topics.DEV_PLAN_COMPLETED,
     failed_topic=topics.DEV_PLAN_FAILED,
-    timeout_s=30.0
-) as awaiter:
-    # Subscriptions are active - safe to publish
+)
+try:
+    # Now safe to publish - listener is already subscribed
     await bus.publish(plan_request_message)
     # Wait for response
-    response = await awaiter.wait()
+    response = await listener.wait(timeout_s=30.0)
+finally:
+    listener.close()
 ```
 
-The legacy :func:`~genus.dev.runtime.await_dev_response` function is still
-available but may have race conditions in synchronous test scenarios.
+The convenience function :func:`~genus.dev.runtime.await_dev_response` is
+also available and handles subscription/cleanup automatically.
 
 ### Timeout Behavior
 

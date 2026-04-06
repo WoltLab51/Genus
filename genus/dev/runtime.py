@@ -10,7 +10,8 @@ Key function:
 """
 
 import asyncio
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from genus.communication.message_bus import Message, MessageBus
 
@@ -54,89 +55,41 @@ class DevResponseFailedError(RuntimeError):
         )
 
 
-class DevResponseAwaiter:
-    """Context manager for awaiting dev-loop phase responses.
+@dataclass
+class DevResponseListener:
+    """Listener for awaiting dev-loop phase responses.
 
-    Implements subscribe-before-publish pattern to avoid race conditions.
-    Subscribes to completion/failure topics on entry, allowing the caller
-    to publish the request message, then awaits the response.
+    Subscribes immediately to completed/failed topics and provides methods
+    to wait for responses and clean up subscriptions. This implements the
+    listen-before-publish pattern to avoid race conditions.
 
-    Usage::
+    Use :func:`listen_for_dev_response` factory to create instances.
 
-        async with DevResponseAwaiter(
-            bus, run_id=run_id, phase_id=phase_id,
-            completed_topic=topics.DEV_PLAN_COMPLETED,
-            failed_topic=topics.DEV_PLAN_FAILED,
-            timeout_s=30.0
-        ) as awaiter:
-            # Subscriptions are now active - safe to publish
-            await bus.publish(plan_request_message)
-            # Wait for response
-            response = await awaiter.wait()
+    Attributes:
+        future:           The asyncio.Future that will be resolved with the response.
+        subscriber_id:    Unique subscriber identifier for this listener.
+        completed_topic:  Topic string for successful completion.
+        failed_topic:     Topic string for failure.
+        bus:              The MessageBus instance.
+        run_id:           The run identifier being awaited.
+        phase_id:         The phase identifier being awaited.
+        _closed:          Internal flag to track cleanup state.
     """
 
-    def __init__(
-        self,
-        bus: MessageBus,
-        *,
-        run_id: str,
-        phase_id: str,
-        completed_topic: str,
-        failed_topic: str,
-        timeout_s: float,
-    ):
-        self._bus = bus
-        self._run_id = run_id
-        self._phase_id = phase_id
-        self._completed_topic = completed_topic
-        self._failed_topic = failed_topic
-        self._timeout_s = timeout_s
-        self._subscriber_id = f"await_dev_response:{phase_id}"
-        self._response_future: Optional[asyncio.Future[Message]] = None
+    future: asyncio.Future[Message]
+    subscriber_id: str
+    completed_topic: str
+    failed_topic: str
+    bus: MessageBus
+    run_id: str
+    phase_id: str
+    _closed: bool = field(default=False, init=False)
 
-    async def __aenter__(self):
-        """Subscribe to topics on context entry."""
-        self._response_future = asyncio.Future()
-
-        async def on_completed(msg: Message) -> None:
-            """Callback for completed topic."""
-            if msg.metadata.get("run_id") != self._run_id:
-                return
-            if msg.payload.get("phase_id") != self._phase_id:
-                return
-            if not self._response_future.done():
-                self._response_future.set_result(msg)
-
-        async def on_failed(msg: Message) -> None:
-            """Callback for failed topic."""
-            if msg.metadata.get("run_id") != self._run_id:
-                return
-            if msg.payload.get("phase_id") != self._phase_id:
-                return
-            if not self._response_future.done():
-                error_text = msg.payload.get("error", "Unknown error")
-                self._response_future.set_exception(
-                    DevResponseFailedError(self._run_id, self._phase_id, error_text, msg)
-                )
-
-        # Store callbacks for cleanup
-        self._on_completed = on_completed
-        self._on_failed = on_failed
-
-        # Subscribe to both topics
-        self._bus.subscribe(self._completed_topic, self._subscriber_id, on_completed)
-        self._bus.subscribe(self._failed_topic, self._subscriber_id, on_failed)
-
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Unsubscribe on context exit."""
-        self._bus.unsubscribe(self._completed_topic, self._subscriber_id)
-        self._bus.unsubscribe(self._failed_topic, self._subscriber_id)
-        return False
-
-    async def wait(self) -> Message:
+    async def wait(self, timeout_s: float) -> Message:
         """Wait for the response or timeout.
+
+        Args:
+            timeout_s: Maximum time to wait in seconds.
 
         Returns:
             The completed Message if the phase succeeds.
@@ -146,10 +99,100 @@ class DevResponseAwaiter:
             DevResponseTimeoutError: If no matching message arrives within timeout_s.
         """
         try:
-            result = await asyncio.wait_for(self._response_future, timeout=self._timeout_s)
+            result = await asyncio.wait_for(self.future, timeout=timeout_s)
             return result
-        except asyncio.TimeoutError:
-            raise DevResponseTimeoutError(self._run_id, self._phase_id, self._timeout_s)
+        except asyncio.TimeoutError as exc:
+            raise DevResponseTimeoutError(self.run_id, self.phase_id, timeout_s) from exc
+
+    def close(self) -> None:
+        """Unsubscribe from topics and mark as closed.
+
+        This method is idempotent - calling it multiple times is safe.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        self.bus.unsubscribe(self.completed_topic, self.subscriber_id)
+        self.bus.unsubscribe(self.failed_topic, self.subscriber_id)
+
+
+def listen_for_dev_response(
+    bus: MessageBus,
+    *,
+    run_id: str,
+    phase_id: str,
+    completed_topic: str,
+    failed_topic: str,
+) -> DevResponseListener:
+    """Subscribe to dev-loop response topics and return a listener.
+
+    Creates a listener that immediately subscribes to both completed and failed
+    topics, filtering by run_id (in metadata) and phase_id (in payload). This
+    enables the listen-before-publish pattern to avoid race conditions.
+
+    Args:
+        bus:             The MessageBus instance to subscribe to.
+        run_id:          The run identifier to match in message metadata.
+        phase_id:        The phase identifier to match in message payload.
+        completed_topic: Topic string for successful completion (e.g., "dev.plan.completed").
+        failed_topic:    Topic string for failure (e.g., "dev.plan.failed").
+
+    Returns:
+        A DevResponseListener that is already subscribed and ready to receive messages.
+
+    Example::
+
+        # Create listener and subscribe immediately
+        listener = listen_for_dev_response(
+            bus, run_id=run_id, phase_id=phase_id,
+            completed_topic=topics.DEV_PLAN_COMPLETED,
+            failed_topic=topics.DEV_PLAN_FAILED,
+        )
+        try:
+            # Now safe to publish - listener is already subscribed
+            await bus.publish(plan_request_message)
+            # Wait for response
+            response = await listener.wait(timeout_s=30.0)
+        finally:
+            listener.close()
+    """
+    subscriber_id = f"await_dev_response:{phase_id}"
+    response_future: asyncio.Future[Message] = asyncio.Future()
+
+    async def on_completed(msg: Message) -> None:
+        """Callback for completed topic."""
+        if msg.metadata.get("run_id") != run_id:
+            return
+        if msg.payload.get("phase_id") != phase_id:
+            return
+        if not response_future.done():
+            response_future.set_result(msg)
+
+    async def on_failed(msg: Message) -> None:
+        """Callback for failed topic."""
+        if msg.metadata.get("run_id") != run_id:
+            return
+        if msg.payload.get("phase_id") != phase_id:
+            return
+        if not response_future.done():
+            error_text = msg.payload.get("error", "Unknown error")
+            response_future.set_exception(
+                DevResponseFailedError(run_id, phase_id, error_text, msg)
+            )
+
+    # Subscribe immediately
+    bus.subscribe(completed_topic, subscriber_id, on_completed)
+    bus.subscribe(failed_topic, subscriber_id, on_failed)
+
+    return DevResponseListener(
+        future=response_future,
+        subscriber_id=subscriber_id,
+        completed_topic=completed_topic,
+        failed_topic=failed_topic,
+        bus=bus,
+        run_id=run_id,
+        phase_id=phase_id,
+    )
 
 
 async def await_dev_response(
@@ -163,13 +206,9 @@ async def await_dev_response(
 ) -> Message:
     """Wait for a dev-loop phase response with correlation and timeout.
 
-    Subscribes to both completed and failed topics, filters messages by
-    run_id (in metadata) and phase_id (in payload), and returns the first
-    matching message. Raises an exception if the phase fails or times out.
-
-    **Note:** This function has a race condition if responders publish their
-    response during the request callback. For deterministic behavior, use
-    :class:`DevResponseAwaiter` context manager to subscribe before publishing.
+    Convenience wrapper around :func:`listen_for_dev_response` that handles
+    subscription and cleanup automatically. For more control, use the listener
+    pattern directly.
 
     Args:
         bus:             The MessageBus instance to subscribe to.
@@ -205,12 +244,14 @@ async def await_dev_response(
         )
         plan = response.payload["plan"]
     """
-    async with DevResponseAwaiter(
+    listener = listen_for_dev_response(
         bus,
         run_id=run_id,
         phase_id=phase_id,
         completed_topic=completed_topic,
         failed_topic=failed_topic,
-        timeout_s=timeout_s,
-    ) as awaiter:
-        return await awaiter.wait()
+    )
+    try:
+        return await listener.wait(timeout_s)
+    finally:
+        listener.close()

@@ -41,7 +41,7 @@ from genus.communication.message_bus import MessageBus
 from genus.dev import events, topics
 from genus.dev.policy import should_ask_user
 from genus.dev.runtime import (
-    DevResponseAwaiter,
+    listen_for_dev_response,
     DevResponseFailedError,
     DevResponseTimeoutError,
 )
@@ -122,16 +122,18 @@ class DevLoopOrchestrator:
             )
             plan_phase_id = plan_req.payload["phase_id"]
 
-            async with DevResponseAwaiter(
+            listener = listen_for_dev_response(
                 self._bus,
                 run_id=run_id,
                 phase_id=plan_phase_id,
                 completed_topic=topics.DEV_PLAN_COMPLETED,
                 failed_topic=topics.DEV_PLAN_FAILED,
-                timeout_s=self._timeout_s,
-            ) as awaiter:
+            )
+            try:
                 await self._bus.publish(plan_req)
-                plan_resp = await awaiter.wait()
+                plan_resp = await listener.wait(self._timeout_s)
+            finally:
+                listener.close()
 
             plan = plan_resp.payload["plan"]
 
@@ -141,46 +143,52 @@ class DevLoopOrchestrator:
             )
             impl_phase_id = impl_req.payload["phase_id"]
 
-            async with DevResponseAwaiter(
+            listener = listen_for_dev_response(
                 self._bus,
                 run_id=run_id,
                 phase_id=impl_phase_id,
                 completed_topic=topics.DEV_IMPLEMENT_COMPLETED,
                 failed_topic=topics.DEV_IMPLEMENT_FAILED,
-                timeout_s=self._timeout_s,
-            ) as awaiter:
+            )
+            try:
                 await self._bus.publish(impl_req)
-                impl_resp = await awaiter.wait()
+                impl_resp = await listener.wait(self._timeout_s)
+            finally:
+                listener.close()
 
             # -- Testing phase --
             test_req = events.dev_test_requested_message(run_id, self._sender_id)
             test_phase_id = test_req.payload["phase_id"]
 
-            async with DevResponseAwaiter(
+            listener = listen_for_dev_response(
                 self._bus,
                 run_id=run_id,
                 phase_id=test_phase_id,
                 completed_topic=topics.DEV_TEST_COMPLETED,
                 failed_topic=topics.DEV_TEST_FAILED,
-                timeout_s=self._timeout_s,
-            ) as awaiter:
+            )
+            try:
                 await self._bus.publish(test_req)
-                test_resp = await awaiter.wait()
+                test_resp = await listener.wait(self._timeout_s)
+            finally:
+                listener.close()
 
             # -- Review phase --
             review_req = events.dev_review_requested_message(run_id, self._sender_id)
             review_phase_id = review_req.payload["phase_id"]
 
-            async with DevResponseAwaiter(
+            listener = listen_for_dev_response(
                 self._bus,
                 run_id=run_id,
                 phase_id=review_phase_id,
                 completed_topic=topics.DEV_REVIEW_COMPLETED,
                 failed_topic=topics.DEV_REVIEW_FAILED,
-                timeout_s=self._timeout_s,
-            ) as awaiter:
+            )
+            try:
                 await self._bus.publish(review_req)
-                review_resp = await awaiter.wait()
+                review_resp = await listener.wait(self._timeout_s)
+            finally:
+                listener.close()
 
             review = review_resp.payload["review"]
 
