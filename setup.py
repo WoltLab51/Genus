@@ -33,4 +33,9 @@ setup(
             "pytest-asyncio>=0.21.0",
         ],
     },
+    entry_points={
+        "console_scripts": [
+            "genus=genus.cli.main:main",
+        ],
+    },
 )
