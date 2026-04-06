@@ -29,6 +29,11 @@ from genus.strategy.registry import (
 from genus.strategy.selector import StrategySelector
 from genus.strategy.store_json import StrategyStoreJson
 from genus.strategy.learning import apply_learning_rule
+from genus.strategy.journal_integration import (
+    log_strategy_decision,
+    get_last_strategy_decision,
+    get_all_strategy_decisions,
+)
 
 __all__ = [
     "PlaybookId",
@@ -40,4 +45,7 @@ __all__ = [
     "StrategySelector",
     "StrategyStoreJson",
     "apply_learning_rule",
+    "log_strategy_decision",
+    "get_last_strategy_decision",
+    "get_all_strategy_decisions",
 ]
