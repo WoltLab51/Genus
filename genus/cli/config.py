@@ -22,8 +22,6 @@ class CliConfig:
         github_owner: Optional GitHub repository owner (e.g., "WoltLab51").
         github_repo: Optional GitHub repository name (e.g., "Genus").
         github_base_branch: Optional base branch for PRs (default "main").
-        push_enabled: Whether to allow git push operations (default False).
-        pr_creation_enabled: Whether to allow PR creation (default False).
     """
 
     workspace_root: Path = field(
@@ -33,8 +31,6 @@ class CliConfig:
     github_owner: Optional[str] = None
     github_repo: Optional[str] = None
     github_base_branch: str = "main"
-    push_enabled: bool = False
-    pr_creation_enabled: bool = False
 
     def __post_init__(self):
         """Initialize derived paths and validate configuration."""

@@ -7,6 +7,7 @@ Supports both text (console) and markdown (GitHub-friendly) formats.
 
 from typing import List, Optional
 from genus.memory.store_jsonl import JsonlRunStore
+from genus.memory.run_journal import RunJournal
 from genus.memory.models import JournalEvent, ArtifactRecord
 
 
@@ -21,12 +22,15 @@ def generate_report(run_id: str, store: JsonlRunStore, *, format: str = "text") 
     Returns:
         Formatted report string.
     """
+    # Create journal reader
+    journal = RunJournal(run_id, store)
+
     # Load run data
-    header = store.load_header(run_id)
+    header = journal.get_header()
     if not header:
         return f"Error: Run {run_id} not found."
 
-    events = store.list_events(run_id)
+    events = journal.get_events()
 
     # Build report sections
     if format == "md":
@@ -320,10 +324,11 @@ def _extract_iterations(events: List[JournalEvent], store: JsonlRunStore) -> Lis
 
 def _get_test_reports(store: JsonlRunStore, run_id: str) -> List[ArtifactRecord]:
     """Get test report artifacts."""
-    artifact_ids = store.list_artifacts(run_id, artifact_type="test_report")
+    journal = RunJournal(run_id, store)
+    artifact_ids = journal.list_artifacts(artifact_type="test_report")
     reports = []
     for artifact_id in artifact_ids:
-        artifact = store.load_artifact(run_id, artifact_id)
+        artifact = journal.load_artifact(artifact_id)
         if artifact:
             reports.append(artifact)
     return reports
@@ -331,32 +336,35 @@ def _get_test_reports(store: JsonlRunStore, run_id: str) -> List[ArtifactRecord]
 
 def _get_pr_info(store: JsonlRunStore, run_id: str) -> Optional[dict]:
     """Get PR information from artifacts."""
-    artifact_ids = store.list_artifacts(run_id, artifact_type="pr_info")
+    journal = RunJournal(run_id, store)
+    artifact_ids = journal.list_artifacts(artifact_type="pr_info")
     if not artifact_ids:
         return None
 
     # Get the most recent PR info
-    artifact = store.load_artifact(run_id, artifact_ids[-1])
+    artifact = journal.load_artifact(artifact_ids[-1])
     return artifact.payload if artifact else None
 
 
 def _get_evaluation(store: JsonlRunStore, run_id: str) -> Optional[dict]:
     """Get evaluation artifact."""
-    artifact_ids = store.list_artifacts(run_id, artifact_type="evaluation")
+    journal = RunJournal(run_id, store)
+    artifact_ids = journal.list_artifacts(artifact_type="evaluation")
     if not artifact_ids:
         return None
 
     # Get the most recent evaluation
-    artifact = store.load_artifact(run_id, artifact_ids[-1])
+    artifact = journal.load_artifact(artifact_ids[-1])
     return artifact.payload if artifact else None
 
 
 def _get_strategy_decisions(store: JsonlRunStore, run_id: str) -> List[dict]:
     """Get all strategy decision artifacts."""
-    artifact_ids = store.list_artifacts(run_id, artifact_type="strategy_decision")
+    journal = RunJournal(run_id, store)
+    artifact_ids = journal.list_artifacts(artifact_type="strategy_decision")
     decisions = []
     for artifact_id in artifact_ids:
-        artifact = store.load_artifact(run_id, artifact_id)
+        artifact = journal.load_artifact(artifact_id)
         if artifact:
             decisions.append(artifact.payload)
     return decisions

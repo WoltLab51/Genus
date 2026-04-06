@@ -15,8 +15,6 @@ def test_parse_args_run_command():
     assert args.goal == "Test goal"
     assert args.requirements is None
     assert args.constraints is None
-    assert args.push is False
-    assert args.create_pr is False
 
 
 def test_parse_args_run_with_requirements():
@@ -40,28 +38,6 @@ def test_parse_args_run_with_constraints():
     ])
 
     assert args.constraints == ["no network", "Python 3.8+"]
-
-
-def test_parse_args_run_with_push():
-    """Test parsing run command with push enabled."""
-    args = parse_args([
-        "run",
-        "--goal", "Test goal",
-        "--push",
-    ])
-
-    assert args.push is True
-
-
-def test_parse_args_run_with_create_pr():
-    """Test parsing run command with PR creation enabled."""
-    args = parse_args([
-        "run",
-        "--goal", "Test goal",
-        "--create-pr",
-    ])
-
-    assert args.create_pr is True
 
 
 def test_parse_args_run_with_github_config():
@@ -187,8 +163,6 @@ def test_parse_args_run_all_options():
         "--requirements", "req1", "req2",
         "--constraints", "const1",
         "--branch", "feature/test",
-        "--push",
-        "--create-pr",
         "--github-owner", "Owner",
         "--github-repo", "Repo",
         "--github-base-branch", "develop",
@@ -201,8 +175,6 @@ def test_parse_args_run_all_options():
     assert args.requirements == ["req1", "req2"]
     assert args.constraints == ["const1"]
     assert args.branch == "feature/test"
-    assert args.push is True
-    assert args.create_pr is True
     assert args.github_owner == "Owner"
     assert args.github_repo == "Repo"
     assert args.github_base_branch == "develop"

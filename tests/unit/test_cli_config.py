@@ -16,8 +16,6 @@ def test_cli_config_defaults():
     assert config.github_owner is None
     assert config.github_repo is None
     assert config.github_base_branch == "main"
-    assert config.push_enabled is False
-    assert config.pr_creation_enabled is False
 
 
 def test_cli_config_custom_workspace():
@@ -64,20 +62,6 @@ def test_cli_config_github_settings():
     assert config.github_base_branch == "develop"
 
 
-def test_cli_config_enable_push():
-    """Test CliConfig with push enabled."""
-    config = CliConfig(push_enabled=True)
-
-    assert config.push_enabled is True
-
-
-def test_cli_config_enable_pr_creation():
-    """Test CliConfig with PR creation enabled."""
-    config = CliConfig(pr_creation_enabled=True)
-
-    assert config.pr_creation_enabled is True
-
-
 def test_cli_config_get_runs_store_dir():
     """Test get_runs_store_dir method."""
     config = CliConfig(workspace_root=Path("/tmp/workspaces"))
@@ -104,8 +88,6 @@ def test_cli_config_all_settings():
         github_owner="Owner",
         github_repo="Repo",
         github_base_branch="develop",
-        push_enabled=True,
-        pr_creation_enabled=True,
     )
 
     assert config.workspace_root == Path("/tmp/workspaces")
@@ -113,5 +95,3 @@ def test_cli_config_all_settings():
     assert config.github_owner == "Owner"
     assert config.github_repo == "Repo"
     assert config.github_base_branch == "develop"
-    assert config.push_enabled is True
-    assert config.pr_creation_enabled is True

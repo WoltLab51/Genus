@@ -18,6 +18,7 @@ from genus.communication.message_bus import MessageBus
 from genus.core.run import new_run_id, attach_run_id
 from genus.memory.run_journal import RunJournal
 from genus.memory.store_jsonl import JsonlRunStore
+from genus.workspace.workspace import RunWorkspace
 
 
 async def cmd_run(
@@ -27,8 +28,6 @@ async def cmd_run(
     constraints: Optional[list] = None,
     workspace_root: Optional[Path] = None,
     branch: Optional[str] = None,
-    push: bool = False,
-    create_pr: bool = False,
 ) -> int:
     """Execute a new GENUS run.
 
@@ -39,37 +38,20 @@ async def cmd_run(
         constraints: Optional list of constraints.
         workspace_root: Optional workspace root (overrides config).
         branch: Optional git branch name.
-        push: Whether to push changes to remote.
-        create_pr: Whether to create a pull request.
 
     Returns:
         Exit code (0 for success, non-zero for failure).
     """
-    # Validate GitHub token if push or PR creation is requested
-    if push or create_pr:
-        if not os.environ.get("GITHUB_TOKEN"):
-            print("Error: GITHUB_TOKEN environment variable is required for push/PR operations.", file=sys.stderr)
-            return 1
-
-        if push and not config.push_enabled:
-            print("Error: Push is not enabled. Pass --push flag to enable.", file=sys.stderr)
-            return 1
-
-        if create_pr and not config.pr_creation_enabled:
-            print("Error: PR creation is not enabled. Pass --create-pr flag to enable.", file=sys.stderr)
-            return 1
-
     try:
         # Generate run_id
         run_id = new_run_id(slug=goal[:32] if goal else "run")
         print(f"Starting new GENUS run: {run_id}")
 
-        # Initialize workspace
+        # Initialize workspace using RunWorkspace
         ws_root = workspace_root or config.workspace_root
-        ws_root.mkdir(parents=True, exist_ok=True)
-        run_workspace = ws_root / run_id
-        run_workspace.mkdir(parents=True, exist_ok=True)
-        print(f"Workspace: {run_workspace}")
+        workspace = RunWorkspace.create(run_id, workspace_root=ws_root)
+        workspace.ensure_dirs()
+        print(f"Workspace: {workspace.root}")
 
         # Initialize run journal
         store = JsonlRunStore(base_dir=str(config.get_runs_store_dir()))
@@ -83,7 +65,7 @@ async def cmd_run(
         header = journal.initialize(
             goal=goal,
             repo_id=repo_id,
-            workspace_root=str(run_workspace),
+            workspace_root=str(workspace.root),
             requirements=requirements or [],
             constraints=constraints or [],
             branch=branch,
@@ -132,7 +114,7 @@ async def cmd_run(
                 requirements=requirements,
                 constraints=constraints,
                 context={
-                    "workspace_root": str(run_workspace),
+                    "workspace_root": str(workspace.root),
                     "branch": branch,
                     "repo_id": repo_id,
                 },
@@ -233,7 +215,7 @@ async def cmd_resume(
         report = generate_report(run_id, store, format="text")
         print(report)
 
-        return 0
+        return 2  # Exit code 2 indicates TODO/not implemented
 
     except Exception as exc:
         print(f"Error resuming run: {exc}", file=sys.stderr)

@@ -70,16 +70,6 @@ def parse_args(argv=None):
         help="Git branch name to work on",
     )
     run_parser.add_argument(
-        "--push",
-        action="store_true",
-        help="Enable git push to remote (requires GITHUB_TOKEN)",
-    )
-    run_parser.add_argument(
-        "--create-pr",
-        action="store_true",
-        help="Enable PR creation (requires GITHUB_TOKEN)",
-    )
-    run_parser.add_argument(
         "--github-owner",
         help="GitHub repository owner (e.g., WoltLab51)",
     )
@@ -166,12 +156,6 @@ def main(argv=None):
     if hasattr(args, "github_base_branch") and args.github_base_branch:
         config.github_base_branch = args.github_base_branch
 
-    # Enable push/PR if requested
-    if hasattr(args, "push") and args.push:
-        config.push_enabled = True
-    if hasattr(args, "create_pr") and args.create_pr:
-        config.pr_creation_enabled = True
-
     # Execute command
     try:
         if args.command == "run":
@@ -183,8 +167,6 @@ def main(argv=None):
                     constraints=args.constraints,
                     workspace_root=args.workspace_root,
                     branch=args.branch,
-                    push=args.push,
-                    create_pr=args.create_pr,
                 )
             )
         elif args.command == "resume":
