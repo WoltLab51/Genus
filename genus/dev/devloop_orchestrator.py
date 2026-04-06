@@ -35,6 +35,7 @@ and terminates.
 """
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from genus.communication.message_bus import MessageBus
@@ -49,6 +50,8 @@ from genus.dev.runtime import (
 if TYPE_CHECKING:
     from genus.strategy.selector import StrategySelector
     from genus.memory.run_journal import RunJournal
+
+logger = logging.getLogger(__name__)
 
 
 def _derive_recommendations(test_report: dict) -> list:
@@ -281,8 +284,8 @@ class DevLoopOrchestrator:
                         try:
                             from genus.strategy.journal_integration import log_strategy_decision
                             log_strategy_decision(self._run_journal, strategy_decision)
-                        except Exception:
-                            pass
+                        except Exception as exc:  # pragma: no cover
+                            logger.warning("strategy decision could not be logged to journal: %s", exc)
 
                 fix_req = events.dev_fix_requested_message(
                     run_id, self._sender_id, findings,
