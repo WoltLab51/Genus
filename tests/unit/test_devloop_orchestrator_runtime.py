@@ -21,6 +21,7 @@ from genus.dev.events import (
     dev_implement_completed_message,
     dev_test_completed_message,
     dev_review_completed_message,
+    dev_fix_completed_message,
 )
 from genus.dev.runtime import DevResponseFailedError, DevResponseTimeoutError
 
@@ -76,6 +77,14 @@ class FakeResponder:
     def on_review_requested(self, review: dict):
         """Set response for review phase."""
         self.responses["review"] = review
+
+    def on_fix_requested(self):
+        """Set response for fix phase."""
+        self.responses["fix"] = {
+            "patch_summary": "Applied fixes",
+            "files_changed": ["file.py"],
+            "fixes_applied": ["fixed test"],
+        }
 
     async def _handle_plan(self, msg: Message):
         """Respond to plan.requested."""
@@ -167,6 +176,27 @@ class FakeResponder:
             )
         )
 
+    async def _handle_fix(self, msg: Message):
+        """Respond to fix.requested."""
+        if msg.metadata.get("run_id") != self.run_id:
+            return
+        phase_id = msg.payload.get("phase_id")
+        if not phase_id:
+            return
+        if "fix" not in self.responses:
+            return
+
+        asyncio.create_task(self._respond_fix(phase_id))
+
+    async def _respond_fix(self, phase_id: str):
+        """Background task to respond to fix request."""
+        await asyncio.sleep(0.01)
+        await self.bus.publish(
+            dev_fix_completed_message(
+                self.run_id, "FakeFixer", self.responses["fix"], phase_id=phase_id
+            )
+        )
+
     def start(self):
         """Subscribe to all requested topics."""
         self.bus.subscribe(topics.DEV_PLAN_REQUESTED, "FakeResponder", self._handle_plan)
@@ -177,6 +207,7 @@ class FakeResponder:
         self.bus.subscribe(
             topics.DEV_REVIEW_REQUESTED, "FakeResponder", self._handle_review
         )
+        self.bus.subscribe(topics.DEV_FIX_REQUESTED, "FakeResponder", self._handle_fix)
 
 
 @pytest.fixture
@@ -444,3 +475,210 @@ class TestOrchestratorFailureHandling:
 
         # Should have published loop.failed
         assert topics.DEV_LOOP_FAILED in failed_published
+
+
+class TestOrchestratorIterativeFixLoop:
+    """Tests for iterative fix-loop behavior."""
+
+    async def test_successful_first_iteration_no_fix_needed(
+        self, bus, orchestrator, run_id, fake_responder
+    ):
+        """When tests pass on first iteration, no fix phase is triggered."""
+        fix_requested = []
+
+        async def capture_fix(msg: Message):
+            fix_requested.append(msg.topic)
+
+        bus.subscribe(topics.DEV_FIX_REQUESTED, "capture", capture_fix)
+
+        # Set up responder with passing tests
+        fake_responder.on_plan_requested({"steps": [], "acceptance_criteria": [], "risks": []})
+        fake_responder.on_implement_requested()
+        fake_responder.on_test_requested()  # Tests pass
+        fake_responder.on_review_requested({"findings": [], "severity": "none", "required_fixes": []})
+
+        await orchestrator.run(run_id, "test goal")
+
+        # No fix should have been requested
+        assert len(fix_requested) == 0
+
+    async def test_triggers_fix_when_tests_fail(
+        self, bus, orchestrator, run_id, fake_responder
+    ):
+        """When tests fail, fix phase is triggered."""
+        fix_requested = []
+        test_count = 0
+
+        async def capture_fix(msg: Message):
+            fix_requested.append(msg.payload)
+
+        async def track_test(msg: Message):
+            nonlocal test_count
+            test_count += 1
+
+        bus.subscribe(topics.DEV_FIX_REQUESTED, "capture", capture_fix)
+        bus.subscribe(topics.DEV_TEST_REQUESTED, "track", track_test)
+
+        # Set up responder
+        fake_responder.on_plan_requested({"steps": [], "acceptance_criteria": [], "risks": []})
+        fake_responder.on_implement_requested()
+        fake_responder.on_fix_requested()
+        fake_responder.on_review_requested({"findings": [], "severity": "none", "required_fixes": []})
+
+        # Custom test responder that fails first time, passes second
+        test_responses = [
+            {"passed": 0, "failed": 1, "failing_tests": ["test_foo"], "summary": "1 test failed"},
+            {"passed": 1, "failed": 0, "failing_tests": [], "summary": "All tests passed"},
+        ]
+        test_index = 0
+
+        async def custom_test_handler(msg: Message):
+            nonlocal test_index
+            if msg.metadata.get("run_id") != run_id:
+                return
+            phase_id = msg.payload.get("phase_id")
+            if not phase_id:
+                return
+
+            async def respond():
+                nonlocal test_index
+                await asyncio.sleep(0.01)
+                await bus.publish(
+                    dev_test_completed_message(
+                        run_id, "FakeTester", test_responses[test_index], phase_id=phase_id
+                    )
+                )
+                test_index += 1
+
+            asyncio.create_task(respond())
+
+        bus.unsubscribe(topics.DEV_TEST_REQUESTED, "FakeResponder")
+        bus.subscribe(topics.DEV_TEST_REQUESTED, "CustomTester", custom_test_handler)
+
+        await orchestrator.run(run_id, "test goal")
+
+        # Fix should have been requested once
+        assert len(fix_requested) == 1
+        assert fix_requested[0]["iteration"] == 1
+        # Tests should have been run twice
+        assert test_count == 2
+
+    async def test_max_iterations_reached(self, bus, run_id):
+        """When max iterations is reached without passing tests, loop fails."""
+        # Create orchestrator with max_iterations=2
+        orchestrator = DevLoopOrchestrator(bus, timeout_s=2.0, max_iterations=2)
+
+        fake_responder = FakeResponder(bus, run_id)
+        fake_responder.on_plan_requested({"steps": [], "acceptance_criteria": [], "risks": []})
+        fake_responder.on_implement_requested()
+        fake_responder.on_fix_requested()
+        fake_responder.start()
+
+        failed_messages = []
+
+        async def capture_failed(msg: Message):
+            failed_messages.append(msg.payload)
+
+        bus.subscribe(topics.DEV_LOOP_FAILED, "capture", capture_failed)
+
+        # Custom test responder that always fails
+        async def always_fail_test_handler(msg: Message):
+            if msg.metadata.get("run_id") != run_id:
+                return
+            phase_id = msg.payload.get("phase_id")
+            if not phase_id:
+                return
+
+            async def respond():
+                await asyncio.sleep(0.01)
+                await bus.publish(
+                    dev_test_completed_message(
+                        run_id,
+                        "FakeTester",
+                        {"passed": 0, "failed": 1, "failing_tests": ["test_foo"], "summary": "Tests failed"},
+                        phase_id=phase_id
+                    )
+                )
+
+            asyncio.create_task(respond())
+
+        bus.subscribe(topics.DEV_TEST_REQUESTED, "AlwaysFailTester", always_fail_test_handler)
+
+        await orchestrator.run(run_id, "test goal")
+
+        # Should have published loop.failed with max iterations message
+        assert len(failed_messages) == 1
+        assert "Max iterations" in failed_messages[0]["error"]
+        assert "2" in failed_messages[0]["error"]
+
+    async def test_iteration_metadata_in_messages(
+        self, bus, orchestrator, run_id, fake_responder
+    ):
+        """Iteration metadata is included in phase messages."""
+        implement_payloads = []
+        test_payloads = []
+        fix_payloads = []
+
+        async def capture_implement(msg: Message):
+            implement_payloads.append(msg.payload)
+
+        async def capture_test(msg: Message):
+            test_payloads.append(msg.payload)
+
+        async def capture_fix(msg: Message):
+            fix_payloads.append(msg.payload)
+
+        bus.subscribe(topics.DEV_IMPLEMENT_REQUESTED, "capture", capture_implement)
+        bus.subscribe(topics.DEV_TEST_REQUESTED, "capture", capture_test)
+        bus.subscribe(topics.DEV_FIX_REQUESTED, "capture", capture_fix)
+
+        # Set up responder
+        fake_responder.on_plan_requested({"steps": [], "acceptance_criteria": [], "risks": []})
+        fake_responder.on_implement_requested()
+        fake_responder.on_fix_requested()
+        fake_responder.on_review_requested({"findings": [], "severity": "none", "required_fixes": []})
+
+        # Custom test responder that fails first time, passes second
+        test_responses = [
+            {"passed": 0, "failed": 1, "failing_tests": ["test_foo"], "summary": "1 test failed"},
+            {"passed": 1, "failed": 0, "failing_tests": [], "summary": "All tests passed"},
+        ]
+        test_index = 0
+
+        async def custom_test_handler(msg: Message):
+            nonlocal test_index
+            if msg.metadata.get("run_id") != run_id:
+                return
+            phase_id = msg.payload.get("phase_id")
+            if not phase_id:
+                return
+
+            async def respond():
+                nonlocal test_index
+                await asyncio.sleep(0.01)
+                await bus.publish(
+                    dev_test_completed_message(
+                        run_id, "FakeTester", test_responses[test_index], phase_id=phase_id
+                    )
+                )
+                test_index += 1
+
+            asyncio.create_task(respond())
+
+        bus.unsubscribe(topics.DEV_TEST_REQUESTED, "FakeResponder")
+        bus.subscribe(topics.DEV_TEST_REQUESTED, "CustomTester", custom_test_handler)
+
+        await orchestrator.run(run_id, "test goal")
+
+        # Check implement has iteration 0
+        assert len(implement_payloads) == 1
+        assert implement_payloads[0]["iteration"] == 0
+
+        # Check tests have iteration metadata
+        assert len(test_payloads) == 2
+        assert test_payloads[0]["iteration"] == 0
+        assert test_payloads[1]["iteration"] == 1
+
+        # Check fix has iteration 1
+        assert len(fix_payloads) == 1
+        assert fix_payloads[0]["iteration"] == 1
