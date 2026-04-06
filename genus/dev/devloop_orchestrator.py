@@ -59,10 +59,12 @@ class DevLoopOrchestrator:
     event loop.
 
     Args:
-        bus:       The shared :class:`~genus.communication.message_bus.MessageBus`
-                   instance used to publish and subscribe.
-        sender_id: Identifier of this orchestrator (included in every message).
-        timeout_s: Default timeout in seconds for awaiting phase responses.
+        bus:                   The shared :class:`~genus.communication.message_bus.MessageBus`
+                               instance used to publish and subscribe.
+        sender_id:             Identifier of this orchestrator (included in every message).
+        timeout_s:             Default timeout in seconds for awaiting phase responses.
+        max_iterations:        Maximum number of fix iterations if tests fail (default: 3).
+        commit_each_iteration: Whether to commit after each fix iteration (default: True).
     """
 
     def __init__(
@@ -70,10 +72,14 @@ class DevLoopOrchestrator:
         bus: MessageBus,
         sender_id: str = "DevLoopOrchestrator",
         timeout_s: float = 30.0,
+        max_iterations: int = 3,
+        commit_each_iteration: bool = True,
     ) -> None:
         self._bus = bus
         self._sender_id = sender_id
         self._timeout_s = timeout_s
+        self._max_iterations = max_iterations
+        self._commit_each_iteration = commit_each_iteration
 
     # ------------------------------------------------------------------
     # Public async entrypoint
@@ -137,9 +143,11 @@ class DevLoopOrchestrator:
 
             plan = plan_resp.payload["plan"]
 
-            # -- Implementation phase --
+            # -- Implementation phase (iteration 0) --
+            iteration = 0
             impl_req = events.dev_implement_requested_message(
-                run_id, self._sender_id, plan
+                run_id, self._sender_id, plan,
+                payload={"iteration": iteration}
             )
             impl_phase_id = impl_req.payload["phase_id"]
 
@@ -156,22 +164,82 @@ class DevLoopOrchestrator:
             finally:
                 listener.close()
 
-            # -- Testing phase --
-            test_req = events.dev_test_requested_message(run_id, self._sender_id)
-            test_phase_id = test_req.payload["phase_id"]
+            # -- Iterative test-fix loop --
+            while iteration <= self._max_iterations:
+                # -- Testing phase --
+                test_req = events.dev_test_requested_message(
+                    run_id, self._sender_id,
+                    payload={"iteration": iteration}
+                )
+                test_phase_id = test_req.payload["phase_id"]
 
-            listener = listen_for_dev_response(
-                self._bus,
-                run_id=run_id,
-                phase_id=test_phase_id,
-                completed_topic=topics.DEV_TEST_COMPLETED,
-                failed_topic=topics.DEV_TEST_FAILED,
-            )
-            try:
-                await self._bus.publish(test_req)
-                test_resp = await listener.wait(self._timeout_s)
-            finally:
-                listener.close()
+                listener = listen_for_dev_response(
+                    self._bus,
+                    run_id=run_id,
+                    phase_id=test_phase_id,
+                    completed_topic=topics.DEV_TEST_COMPLETED,
+                    failed_topic=topics.DEV_TEST_FAILED,
+                )
+                try:
+                    await self._bus.publish(test_req)
+                    test_resp = await listener.wait(self._timeout_s)
+                finally:
+                    listener.close()
+
+                # Check if tests passed
+                test_report = test_resp.payload.get("report", {})
+                tests_passed = (
+                    test_report.get("failed", 0) == 0
+                    and len(test_report.get("failing_tests", [])) == 0
+                )
+
+                if tests_passed:
+                    # Tests passed, continue to review
+                    break
+
+                # Tests failed - check if we can iterate
+                if iteration >= self._max_iterations:
+                    # Max iterations reached
+                    await self._bus.publish(
+                        events.dev_loop_failed_message(
+                            run_id,
+                            self._sender_id,
+                            f"Max iterations ({self._max_iterations}) reached. Tests still failing: {test_report.get('summary', 'unknown')}",
+                        )
+                    )
+                    return
+
+                # -- Fix phase --
+                iteration += 1
+                findings = [
+                    {
+                        "type": "test_failure",
+                        "message": test_report.get("summary", "Tests failed"),
+                        "failing_tests": test_report.get("failing_tests", []),
+                        "report": test_report,
+                    }
+                ]
+
+                fix_req = events.dev_fix_requested_message(
+                    run_id, self._sender_id, findings,
+                    payload={"iteration": iteration}
+                )
+                fix_phase_id = fix_req.payload["phase_id"]
+
+                listener = listen_for_dev_response(
+                    self._bus,
+                    run_id=run_id,
+                    phase_id=fix_phase_id,
+                    completed_topic=topics.DEV_FIX_COMPLETED,
+                    failed_topic=topics.DEV_FIX_FAILED,
+                )
+                try:
+                    await self._bus.publish(fix_req)
+                    fix_resp = await listener.wait(self._timeout_s)
+                finally:
+                    listener.close()
+
+                # Fix completed, loop back to test
 
             # -- Review phase --
             review_req = events.dev_review_requested_message(run_id, self._sender_id)
