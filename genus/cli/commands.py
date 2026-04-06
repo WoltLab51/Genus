@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from genus.cli.config import CliConfig
-from genus.cli.report import generate_report
+from genus.cli.report import generate_report, _determine_status, _get_evaluation
 from genus.communication.message_bus import MessageBus
 from genus.core.run import new_run_id, attach_run_id
 from genus.memory.run_journal import RunJournal
@@ -266,3 +266,164 @@ def cmd_report(
         import traceback
         traceback.print_exc()
         return 1
+
+
+def cmd_list_runs(
+    config: CliConfig,
+    limit: int = 20,
+    format: str = "text",
+) -> int:
+    """List recent runs from the run store.
+
+    Args:
+        config: CLI configuration.
+        limit: Maximum number of runs to display.
+        format: Output format ("text" or "md").
+
+    Returns:
+        Exit code (0 for success, non-zero for failure).
+    """
+    try:
+        store = JsonlRunStore(base_dir=str(config.get_runs_store_dir()))
+
+        # Check if runs store directory exists
+        if not store.base_dir.exists():
+            print(f"No runs found. Run store directory does not exist: {store.base_dir}", file=sys.stderr)
+            return 1
+
+        # Get all run IDs
+        run_ids = store.list_runs()
+
+        if not run_ids:
+            print("No runs found.")
+            return 0
+
+        # Collect run information
+        runs_info = []
+        for run_id in run_ids:
+            try:
+                journal = RunJournal(run_id, store)
+                header = journal.get_header()
+
+                if not header:
+                    # Run exists but has no header - show with placeholder info
+                    runs_info.append({
+                        "run_id": run_id,
+                        "created_at": "(no header)",
+                        "status": "unknown",
+                        "goal": "(no header)",
+                        "score": None,
+                        "mtime": store._run_dir(run_id).stat().st_mtime,
+                    })
+                    continue
+
+                # Determine status from events
+                events = journal.get_events()
+                status = _determine_status(events)
+
+                # Get score from evaluation artifact if available
+                evaluation = _get_evaluation(store, run_id)
+                score = evaluation.get("score") if evaluation else None
+
+                runs_info.append({
+                    "run_id": run_id,
+                    "created_at": header.created_at,
+                    "status": status,
+                    "goal": header.goal,
+                    "score": score,
+                    "mtime": store._run_dir(run_id).stat().st_mtime,
+                })
+
+            except Exception as exc:
+                # If we can't read a run, skip it
+                continue
+
+        if not runs_info:
+            print("No valid runs found.")
+            return 0
+
+        # Sort by created_at (ISO string sort works), fallback to mtime
+        def sort_key(run_info):
+            if run_info["created_at"] != "(no header)":
+                return run_info["created_at"]
+            else:
+                # Convert mtime to ISO-like string for consistent sorting
+                return datetime.fromtimestamp(run_info["mtime"], tz=timezone.utc).isoformat()
+
+        runs_info.sort(key=sort_key, reverse=True)
+
+        # Limit results
+        runs_info = runs_info[:limit]
+
+        # Output
+        if format == "md":
+            _print_runs_markdown(runs_info)
+        else:
+            _print_runs_text(runs_info)
+
+        return 0
+
+    except Exception as exc:
+        print(f"Error listing runs: {exc}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def _print_runs_text(runs_info: list) -> None:
+    """Print runs in text format with aligned columns."""
+    if not runs_info:
+        return
+
+    print("=" * 120)
+    print("Recent GENUS Runs")
+    print("=" * 120)
+    print()
+
+    # Header
+    print(f"{'Created At':<20} {'Run ID':<45} {'Status':<12} {'Score':<8} {'Goal':<60}")
+    print("-" * 120)
+
+    # Rows
+    for run in runs_info:
+        created_at = run["created_at"][:19] if run["created_at"] != "(no header)" else "(no header)"
+        run_id = run["run_id"]
+        status = run["status"]
+        score = f"{run['score']:.2f}" if run["score"] is not None else "-"
+        goal = run["goal"]
+
+        # Truncate goal if too long
+        if len(goal) > 60:
+            goal = goal[:57] + "..."
+
+        print(f"{created_at:<20} {run_id:<45} {status:<12} {score:<8} {goal:<60}")
+
+    print("=" * 120)
+
+
+def _print_runs_markdown(runs_info: list) -> None:
+    """Print runs in markdown table format."""
+    if not runs_info:
+        return
+
+    print("# Recent GENUS Runs")
+    print()
+    print("| Created At | Run ID | Status | Score | Goal |")
+    print("|------------|--------|--------|-------|------|")
+
+    for run in runs_info:
+        created_at = run["created_at"][:19] if run["created_at"] != "(no header)" else "(no header)"
+        run_id = run["run_id"]
+        status = run["status"]
+        score = f"{run['score']:.2f}" if run["score"] is not None else "-"
+        goal = run["goal"]
+
+        # Truncate goal if too long
+        if len(goal) > 60:
+            goal = goal[:57] + "..."
+
+        # Escape pipe characters in goal
+        goal = goal.replace("|", "\\|")
+
+        print(f"| {created_at} | {run_id} | {status} | {score} | {goal} |")
+

@@ -271,3 +271,142 @@ def test_report_includes_iterations(sample_run):
     assert "Iterations" in report
     assert "Iteration 0" in report
     assert "abc123" in report
+
+
+def test_report_tolerant_duration_key(temp_store):
+    """Test that report handles duration_s key variant."""
+    run_id = "2026-04-06T16-00-00Z__test-duration__xyz"
+
+    # Create header
+    header = RunHeader(
+        run_id=run_id,
+        created_at="2026-04-06T16:00:00Z",
+        goal="Test duration key tolerance",
+    )
+    temp_store.save_header(header)
+
+    # Add test report with duration_s instead of duration
+    test_report = ArtifactRecord(
+        run_id=run_id,
+        phase="test",
+        artifact_type="test_report",
+        payload={
+            "exit_code": 0,
+            "duration_s": 3.7,  # Using duration_s instead of duration
+            "timed_out": False,
+        },
+        saved_at="2026-04-06T16:00:10Z",
+    )
+    temp_store.save_artifact(test_report)
+
+    report = generate_report(run_id, temp_store, format="text")
+
+    # Verify duration is displayed
+    assert "Duration:" in report
+    assert "3.7" in report
+
+
+def test_report_tolerant_stderr_keys(temp_store):
+    """Test that report handles stderr_tail and stderr_summary key variants."""
+    run_id = "2026-04-06T17-00-00Z__test-stderr__xyz"
+
+    # Create header
+    header = RunHeader(
+        run_id=run_id,
+        created_at="2026-04-06T17:00:00Z",
+        goal="Test stderr key tolerance",
+    )
+    temp_store.save_header(header)
+
+    # Add test report with stderr_tail instead of stderr
+    test_report = ArtifactRecord(
+        run_id=run_id,
+        phase="test",
+        artifact_type="test_report",
+        payload={
+            "exit_code": 1,
+            "duration_s": 2.5,
+            "timed_out": False,
+            "stderr_tail": "Error: Test failed at line 42",  # Using stderr_tail
+        },
+        saved_at="2026-04-06T17:00:10Z",
+    )
+    temp_store.save_artifact(test_report)
+
+    report = generate_report(run_id, temp_store, format="text")
+
+    # Verify stderr is displayed
+    assert "Stderr:" in report
+    assert "Test failed at line 42" in report
+
+
+def test_report_tolerant_stderr_summary_key(temp_store):
+    """Test that report handles stderr_summary key variant."""
+    run_id = "2026-04-06T18-00-00Z__test-stderr-summary__xyz"
+
+    # Create header
+    header = RunHeader(
+        run_id=run_id,
+        created_at="2026-04-06T18:00:00Z",
+        goal="Test stderr_summary key tolerance",
+    )
+    temp_store.save_header(header)
+
+    # Add test report with stderr_summary
+    test_report = ArtifactRecord(
+        run_id=run_id,
+        phase="test",
+        artifact_type="test_report",
+        payload={
+            "exit_code": 1,
+            "duration": 1.8,
+            "timed_out": False,
+            "stderr_summary": "Multiple test failures detected",  # Using stderr_summary
+        },
+        saved_at="2026-04-06T18:00:10Z",
+    )
+    temp_store.save_artifact(test_report)
+
+    report = generate_report(run_id, temp_store, format="text")
+
+    # Verify stderr_summary is displayed
+    assert "Stderr:" in report
+    assert "Multiple test failures detected" in report
+
+
+def test_report_all_key_variants_combined(temp_store):
+    """Test report with all key variants in one test report."""
+    run_id = "2026-04-06T19-00-00Z__test-all-variants__xyz"
+
+    # Create header
+    header = RunHeader(
+        run_id=run_id,
+        created_at="2026-04-06T19:00:00Z",
+        goal="Test all key variants",
+    )
+    temp_store.save_header(header)
+
+    # Add test report with all variant keys
+    test_report = ArtifactRecord(
+        run_id=run_id,
+        phase="test",
+        artifact_type="test_report",
+        payload={
+            "exit_code": 1,
+            "duration_s": 4.2,  # Using duration_s
+            "timed_out": False,
+            "stderr_tail": "Final error message",  # Using stderr_tail
+            "stdout_tail": "Final output message",  # Using stdout_tail (not currently displayed but should be tolerated)
+        },
+        saved_at="2026-04-06T19:00:10Z",
+    )
+    temp_store.save_artifact(test_report)
+
+    # Should not raise any errors
+    report = generate_report(run_id, temp_store, format="text")
+
+    assert "Duration:" in report
+    assert "4.2" in report
+    assert "Stderr:" in report
+    assert "Final error message" in report
+

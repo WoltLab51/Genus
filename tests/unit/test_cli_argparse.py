@@ -178,3 +178,42 @@ def test_parse_args_run_all_options():
     assert args.github_owner == "Owner"
     assert args.github_repo == "Repo"
     assert args.github_base_branch == "develop"
+
+
+def test_parse_args_list_runs_command():
+    """Test parsing the list-runs command."""
+    args = parse_args(["list-runs"])
+
+    assert args.command == "list-runs"
+    assert args.limit == 20
+    assert args.format == "text"
+
+
+def test_parse_args_list_runs_with_limit():
+    """Test parsing list-runs command with custom limit."""
+    args = parse_args(["list-runs", "--limit", "50"])
+
+    assert args.limit == 50
+
+
+def test_parse_args_list_runs_with_format():
+    """Test parsing list-runs command with markdown format."""
+    args = parse_args(["list-runs", "--format", "md"])
+
+    assert args.format == "md"
+
+
+def test_parse_args_list_runs_all_options():
+    """Test parsing list-runs command with all options."""
+    args = parse_args([
+        "--runs-store-dir", "/custom/runs",
+        "list-runs",
+        "--limit", "100",
+        "--format", "md",
+    ])
+
+    assert args.command == "list-runs"
+    assert args.runs_store_dir == Path("/custom/runs")
+    assert args.limit == 100
+    assert args.format == "md"
+

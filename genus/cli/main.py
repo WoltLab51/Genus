@@ -10,7 +10,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from genus.cli.commands import cmd_run, cmd_resume, cmd_report
+from genus.cli.commands import cmd_run, cmd_resume, cmd_report, cmd_list_runs
 from genus.cli.config import CliConfig
 
 
@@ -123,6 +123,25 @@ def parse_args(argv=None):
         help="Output file path (default: print to stdout)",
     )
 
+    # List-runs command
+    list_runs_parser = subparsers.add_parser(
+        "list-runs",
+        help="List recent runs",
+        description="List the most recent GENUS runs from the run store.",
+    )
+    list_runs_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of runs to display (default: 20)",
+    )
+    list_runs_parser.add_argument(
+        "--format",
+        choices=["text", "md"],
+        default="text",
+        help="Output format: text (console) or md (markdown table)",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -183,6 +202,12 @@ def main(argv=None):
                 config=config,
                 format=args.format,
                 output=args.output,
+            )
+        elif args.command == "list-runs":
+            exit_code = cmd_list_runs(
+                config=config,
+                limit=args.limit,
+                format=args.format,
             )
         else:
             print(f"Error: Unknown command '{args.command}'", file=sys.stderr)
