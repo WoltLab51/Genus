@@ -97,11 +97,19 @@ def _generate_text_report(run_id: str, header, events: List[JournalEvent], store
             payload = report.payload
             lines.append(f"  Test Report {i}:")
             lines.append(f"    Exit Code: {payload.get('exit_code', 'N/A')}")
-            lines.append(f"    Duration:  {payload.get('duration', 'N/A')}s")
+
+            # Tolerant key handling for duration
+            duration = _get_first(payload, ["duration_s", "duration"])
+            lines.append(f"    Duration:  {duration if duration is not None else 'N/A'}s")
+
             lines.append(f"    Timed Out: {payload.get('timed_out', False)}")
-            if payload.get('stderr'):
-                stderr_tail = payload['stderr'][-200:] if len(payload['stderr']) > 200 else payload['stderr']
-                lines.append(f"    Stderr:    {stderr_tail}")
+
+            # Tolerant key handling for stderr
+            stderr = _get_first(payload, ["stderr_tail", "stderr_summary", "stderr"])
+            if stderr:
+                if isinstance(stderr, str):
+                    stderr_tail = stderr[-200:] if len(stderr) > 200 else stderr
+                    lines.append(f"    Stderr:    {stderr_tail}")
     else:
         lines.append("  No test reports found.")
     lines.append("")
@@ -214,15 +222,23 @@ def _generate_markdown_report(run_id: str, header, events: List[JournalEvent], s
             lines.append(f"### Test Report {i}")
             lines.append("")
             lines.append(f"- **Exit Code:** {payload.get('exit_code', 'N/A')}")
-            lines.append(f"- **Duration:** {payload.get('duration', 'N/A')}s")
+
+            # Tolerant key handling for duration
+            duration = _get_first(payload, ["duration_s", "duration"])
+            lines.append(f"- **Duration:** {duration if duration is not None else 'N/A'}s")
+
             lines.append(f"- **Timed Out:** {payload.get('timed_out', False)}")
-            if payload.get('stderr'):
-                stderr_tail = payload['stderr'][-500:] if len(payload['stderr']) > 500 else payload['stderr']
-                lines.append("")
-                lines.append("**Error Output:**")
-                lines.append("```")
-                lines.append(stderr_tail)
-                lines.append("```")
+
+            # Tolerant key handling for stderr
+            stderr = _get_first(payload, ["stderr_tail", "stderr_summary", "stderr"])
+            if stderr:
+                if isinstance(stderr, str):
+                    stderr_tail = stderr[-500:] if len(stderr) > 500 else stderr
+                    lines.append("")
+                    lines.append("**Error Output:**")
+                    lines.append("```")
+                    lines.append(stderr_tail)
+                    lines.append("```")
             lines.append("")
     else:
         lines.append("No test reports found.")
@@ -281,6 +297,23 @@ def _generate_markdown_report(run_id: str, header, events: List[JournalEvent], s
 
 
 # Helper functions
+
+def _get_first(payload: dict, keys: list, default=None):
+    """Get the first available key from a list of keys.
+
+    Args:
+        payload: Dictionary to search.
+        keys: List of keys to try in order.
+        default: Default value if no keys are found.
+
+    Returns:
+        Value of the first found key, or default if none found.
+    """
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    return default
+
 
 def _determine_status(events: List[JournalEvent]) -> str:
     """Determine the final status from journal events."""

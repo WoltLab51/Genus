@@ -159,6 +159,77 @@ genus report --run-id "2026-04-06T12-00-00Z__feature-auth__abc123" --format md -
 - `--format`: Output format - `text` (console-friendly) or `md` (markdown)
 - `--output`: Output file path (default: print to stdout)
 
+### `genus list-runs` - List Recent Runs
+
+List the most recent GENUS runs from the run store, sorted by creation time (newest first).
+
+**Basic Usage:**
+
+```bash
+genus list-runs
+```
+
+**Windows PowerShell Examples:**
+
+```powershell
+# List the 20 most recent runs (default)
+genus list-runs
+
+# List the 50 most recent runs
+genus list-runs --limit 50
+
+# Generate markdown table output
+genus list-runs --format md
+
+# List runs from a custom store directory
+genus list-runs --runs-store-dir C:\custom\runs
+```
+
+**Linux/macOS Examples:**
+
+```bash
+# List the 20 most recent runs (default)
+genus list-runs
+
+# List the 50 most recent runs
+genus list-runs --limit 50
+
+# Generate markdown table output
+genus list-runs --format md
+
+# List runs from a custom store directory
+genus list-runs --runs-store-dir /custom/runs
+```
+
+**Options:**
+
+- `--limit`: Maximum number of runs to display (default: 20)
+- `--format`: Output format - `text` (console table) or `md` (markdown table)
+- `--runs-store-dir`: Custom runs store directory (can also be set via global option)
+
+**Output Columns:**
+
+- **Created At**: Timestamp when the run was created (ISO format, truncated)
+- **Run ID**: Unique identifier for the run
+- **Status**: Run status (completed, failed, in_progress, unknown)
+- **Score**: Evaluation score if available (0.00 to 1.00), or "-" if not evaluated
+- **Goal**: High-level objective of the run (truncated to 60 characters)
+
+**Example Output:**
+
+```
+========================================================================================================================
+Recent GENUS Runs
+========================================================================================================================
+
+Created At           Run ID                                        Status       Score    Goal
+------------------------------------------------------------------------------------------------------------------------
+2026-04-06T14:00:00 2026-04-06T14-00-00Z__fix-bug__ghi789        failed       0.25     Fix critical bug in payment processing
+2026-04-06T13:00:00 2026-04-06T13-00-00Z__refactor__def456       in_progress  -        Refactor database layer for better performance
+2026-04-06T12:00:00 2026-04-06T12-00-00Z__feature-auth__abc123   completed    0.95     Implement user authentication feature
+========================================================================================================================
+```
+
 ## Environment Variables
 
 ### `GENUS_RUNSTORE_DIR`
@@ -211,7 +282,13 @@ When you start a run, the CLI prints the run ID:
 Starting new GENUS run: 2026-04-06T12-00-00Z__feature-auth__abc123
 ```
 
-You can also find run IDs by looking in the runs store directory:
+You can also list all recent runs using the `list-runs` command:
+
+```bash
+genus list-runs
+```
+
+Or by looking in the runs store directory:
 
 ```bash
 # Linux/macOS
@@ -267,13 +344,16 @@ genus run --goal "Add password reset feature" \
 # Output shows run ID:
 # Starting new GENUS run: 2026-04-06T14-30-00Z__add-password-reset-featur__k9x2q1
 
-# 2. If interrupted, resume
+# 2. List recent runs to check status
+genus list-runs
+
+# 3. If interrupted, resume
 genus resume --run-id "2026-04-06T14-30-00Z__add-password-reset-featur__k9x2q1"
 
-# 3. Generate report
+# 4. Generate report
 genus report --run-id "2026-04-06T14-30-00Z__add-password-reset-featur__k9x2q1"
 
-# 4. Generate markdown report for documentation
+# 5. Generate markdown report for documentation
 genus report --run-id "2026-04-06T14-30-00Z__add-password-reset-featur__k9x2q1" \
   --format md --output password-reset-implementation.md
 ```
