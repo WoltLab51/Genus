@@ -13,6 +13,47 @@ communicating via the shared `MessageBus`.  Human intervention is only
 requested when the **Ask/Stop policy** detects a condition that requires
 operator confirmation.
 
+### Phase Correlation
+
+Each dev-loop phase request includes a unique **`phase_id`** in the payload
+to enable deterministic correlation between request and response messages.
+Responder agents (Builder, Reviewer) **must mirror** the `phase_id` from
+the `*.requested` message in their `*.completed` or `*.failed` response.
+
+The orchestrator uses :func:`~genus.dev.runtime.listen_for_dev_response` to
+subscribe before publishing, then waits for matching responses filtered by
+both `run_id` (in metadata) and `phase_id` (in payload).
+
+**Example - Listen-before-publish pattern:**
+
+```python
+from genus.dev.runtime import listen_for_dev_response
+
+# Create listener - subscribes immediately
+listener = listen_for_dev_response(
+    bus, run_id=run_id, phase_id=phase_id,
+    completed_topic=topics.DEV_PLAN_COMPLETED,
+    failed_topic=topics.DEV_PLAN_FAILED,
+)
+try:
+    # Now safe to publish - listener is already subscribed
+    await bus.publish(plan_request_message)
+    # Wait for response
+    response = await listener.wait(timeout_s=30.0)
+finally:
+    listener.close()
+```
+
+The convenience function :func:`~genus.dev.runtime.await_dev_response` is
+also available and handles subscription/cleanup automatically.
+
+### Timeout Behavior
+
+The orchestrator waits for each phase response with a configurable timeout
+(default: 30 seconds).  If no matching response arrives within the timeout,
+a :class:`~genus.dev.runtime.DevResponseTimeoutError` is raised and the
+loop terminates with `dev.loop.failed`.
+
 ---
 
 ## Roles
@@ -196,22 +237,25 @@ ask, reason = should_ask_user(
 genus/dev/
 ├── __init__.py                # Package marker
 ├── topics.py                  # Topic string constants + ALL_DEV_TOPICS
-├── events.py                  # Message factory functions
+├── events.py                  # Message factory functions (with phase_id support)
 ├── schemas.py                 # Artifact dataclasses (PlanArtifact, etc.)
 ├── policy.py                  # Ask/Stop policy (should_ask_user)
-└── devloop_orchestrator.py    # Skeleton orchestrator (no tool execution)
+├── runtime.py                 # Runtime helpers (await_dev_response, exceptions)
+└── devloop_orchestrator.py    # Real orchestrator with await logic
 
 tests/unit/
 ├── test_dev_topics.py         # Topic constants tests
 ├── test_dev_events.py         # Factory function tests
-└── test_dev_policy.py         # Policy rule tests
+├── test_dev_policy.py         # Policy rule tests
+├── test_dev_runtime.py        # Runtime helper tests
+└── test_devloop_orchestrator_runtime.py  # Orchestrator runtime tests
 ```
 
 ---
 
 ## Constraints
 
-- **No subprocess execution** – the orchestrator skeleton publishes messages only.
+- **No subprocess execution** – the orchestrator awaits responses but does not execute tools directly.
 - **No FastAPI changes** – dev-loop contracts are transport-agnostic.
 - **No Redis required** – unit tests use the in-memory `MessageBus`.
 - **No changes to existing Orchestrator/ToolExecutor** – fully additive.

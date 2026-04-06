@@ -7,6 +7,8 @@ instances for each GENUS dev-loop phase topic.
 Design rules:
 - ``sender_id`` and ``run_id`` are always required.
 - ``run_id`` is always attached to ``metadata`` via :func:`~genus.core.run.attach_run_id`.
+- ``phase_id`` is required for all ``*.requested``, ``*.completed``, and ``*.failed``
+  phase messages to enable deterministic correlation of responses.
 - Optional ``payload`` dict and optional extra ``metadata`` dict are merged safely
   (input dicts are never mutated).
 - Payload values must be JSON-compatible (dict/list/str/int/bool/None).
@@ -14,10 +16,24 @@ Design rules:
 """
 
 from typing import Any, Dict, List, Optional
+import uuid
 
 from genus.communication.message_bus import Message
 from genus.core.run import attach_run_id
 from genus.dev import topics
+
+
+def new_phase_id(run_id: str, phase: str) -> str:
+    """Generate a unique phase_id for correlation.
+
+    Args:
+        run_id: The current run identifier.
+        phase:  A short phase label (e.g. "plan", "implement", "test").
+
+    Returns:
+        A unique phase_id string combining run_id, phase, and a UUID suffix.
+    """
+    return f"{run_id}:{phase}:{uuid.uuid4()}"
 
 
 def _build_dev_message(
@@ -104,13 +120,21 @@ def dev_plan_requested_message(
     run_id: str,
     sender_id: str,
     *,
+    phase_id: Optional[str] = None,
     requirements: Optional[List[str]] = None,
     constraints: Optional[List[str]] = None,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.plan.requested`` message."""
+    """Build a ``dev.plan.requested`` message.
+
+    Args:
+        phase_id: Optional unique phase identifier for correlation. If None, a new one is generated.
+    """
+    if phase_id is None:
+        phase_id = new_phase_id(run_id, "plan")
     extra: Dict[str, Any] = {
+        "phase_id": phase_id,
         "requirements": requirements or [],
         "constraints": constraints or [],
     }
@@ -122,6 +146,7 @@ def dev_plan_completed_message(
     sender_id: str,
     plan: Dict[str, Any],
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
@@ -130,8 +155,9 @@ def dev_plan_completed_message(
     Args:
         plan: A JSON-compatible dict describing the plan artifact.
               Recommended shape: see :class:`~genus.dev.schemas.PlanArtifact`.
+        phase_id: Required phase identifier from the corresponding requested message.
     """
-    extra: Dict[str, Any] = {"plan": plan}
+    extra: Dict[str, Any] = {"phase_id": phase_id, "plan": plan}
     return _build_dev_message(topics.DEV_PLAN_COMPLETED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -140,11 +166,16 @@ def dev_plan_failed_message(
     sender_id: str,
     error: str,
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.plan.failed`` message."""
-    extra: Dict[str, Any] = {"error": error}
+    """Build a ``dev.plan.failed`` message.
+
+    Args:
+        phase_id: Required phase identifier from the corresponding requested message.
+    """
+    extra: Dict[str, Any] = {"phase_id": phase_id, "error": error}
     return _build_dev_message(topics.DEV_PLAN_FAILED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -157,11 +188,18 @@ def dev_implement_requested_message(
     sender_id: str,
     plan: Dict[str, Any],
     *,
+    phase_id: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.implement.requested`` message."""
-    extra: Dict[str, Any] = {"plan": plan}
+    """Build a ``dev.implement.requested`` message.
+
+    Args:
+        phase_id: Optional unique phase identifier for correlation. If None, a new one is generated.
+    """
+    if phase_id is None:
+        phase_id = new_phase_id(run_id, "implement")
+    extra: Dict[str, Any] = {"phase_id": phase_id, "plan": plan}
     return _build_dev_message(topics.DEV_IMPLEMENT_REQUESTED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -171,11 +209,17 @@ def dev_implement_completed_message(
     patch_summary: str,
     files_changed: List[str],
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.implement.completed`` message."""
+    """Build a ``dev.implement.completed`` message.
+
+    Args:
+        phase_id: Required phase identifier from the corresponding requested message.
+    """
     extra: Dict[str, Any] = {
+        "phase_id": phase_id,
         "patch_summary": patch_summary,
         "files_changed": list(files_changed),
     }
@@ -187,11 +231,16 @@ def dev_implement_failed_message(
     sender_id: str,
     error: str,
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.implement.failed`` message."""
-    extra: Dict[str, Any] = {"error": error}
+    """Build a ``dev.implement.failed`` message.
+
+    Args:
+        phase_id: Required phase identifier from the corresponding requested message.
+    """
+    extra: Dict[str, Any] = {"phase_id": phase_id, "error": error}
     return _build_dev_message(topics.DEV_IMPLEMENT_FAILED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -203,12 +252,19 @@ def dev_test_requested_message(
     run_id: str,
     sender_id: str,
     *,
+    phase_id: Optional[str] = None,
     test_command: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.test.requested`` message."""
-    extra: Dict[str, Any] = {"test_command": test_command or ""}
+    """Build a ``dev.test.requested`` message.
+
+    Args:
+        phase_id: Optional unique phase identifier for correlation. If None, a new one is generated.
+    """
+    if phase_id is None:
+        phase_id = new_phase_id(run_id, "test")
+    extra: Dict[str, Any] = {"phase_id": phase_id, "test_command": test_command or ""}
     return _build_dev_message(topics.DEV_TEST_REQUESTED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -217,6 +273,7 @@ def dev_test_completed_message(
     sender_id: str,
     report: Dict[str, Any],
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
@@ -225,8 +282,9 @@ def dev_test_completed_message(
     Args:
         report: A JSON-compatible dict describing the test report.
                 Recommended shape: see :class:`~genus.dev.schemas.TestReportArtifact`.
+        phase_id: Required phase identifier from the corresponding requested message.
     """
-    extra: Dict[str, Any] = {"report": report}
+    extra: Dict[str, Any] = {"phase_id": phase_id, "report": report}
     return _build_dev_message(topics.DEV_TEST_COMPLETED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -235,11 +293,16 @@ def dev_test_failed_message(
     sender_id: str,
     error: str,
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.test.failed`` message."""
-    extra: Dict[str, Any] = {"error": error}
+    """Build a ``dev.test.failed`` message.
+
+    Args:
+        phase_id: Required phase identifier from the corresponding requested message.
+    """
+    extra: Dict[str, Any] = {"phase_id": phase_id, "error": error}
     return _build_dev_message(topics.DEV_TEST_FAILED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -251,12 +314,19 @@ def dev_review_requested_message(
     run_id: str,
     sender_id: str,
     *,
+    phase_id: Optional[str] = None,
     patch_summary: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.review.requested`` message."""
-    extra: Dict[str, Any] = {"patch_summary": patch_summary or ""}
+    """Build a ``dev.review.requested`` message.
+
+    Args:
+        phase_id: Optional unique phase identifier for correlation. If None, a new one is generated.
+    """
+    if phase_id is None:
+        phase_id = new_phase_id(run_id, "review")
+    extra: Dict[str, Any] = {"phase_id": phase_id, "patch_summary": patch_summary or ""}
     return _build_dev_message(topics.DEV_REVIEW_REQUESTED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -265,6 +335,7 @@ def dev_review_completed_message(
     sender_id: str,
     review: Dict[str, Any],
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
@@ -273,8 +344,9 @@ def dev_review_completed_message(
     Args:
         review: A JSON-compatible dict describing the review artifact.
                 Recommended shape: see :class:`~genus.dev.schemas.ReviewArtifact`.
+        phase_id: Required phase identifier from the corresponding requested message.
     """
-    extra: Dict[str, Any] = {"review": review}
+    extra: Dict[str, Any] = {"phase_id": phase_id, "review": review}
     return _build_dev_message(topics.DEV_REVIEW_COMPLETED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -283,11 +355,16 @@ def dev_review_failed_message(
     sender_id: str,
     error: str,
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.review.failed`` message."""
-    extra: Dict[str, Any] = {"error": error}
+    """Build a ``dev.review.failed`` message.
+
+    Args:
+        phase_id: Required phase identifier from the corresponding requested message.
+    """
+    extra: Dict[str, Any] = {"phase_id": phase_id, "error": error}
     return _build_dev_message(topics.DEV_REVIEW_FAILED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -300,11 +377,18 @@ def dev_fix_requested_message(
     sender_id: str,
     findings: List[Dict[str, Any]],
     *,
+    phase_id: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.fix.requested`` message."""
-    extra: Dict[str, Any] = {"findings": list(findings)}
+    """Build a ``dev.fix.requested`` message.
+
+    Args:
+        phase_id: Optional unique phase identifier for correlation. If None, a new one is generated.
+    """
+    if phase_id is None:
+        phase_id = new_phase_id(run_id, "fix")
+    extra: Dict[str, Any] = {"phase_id": phase_id, "findings": list(findings)}
     return _build_dev_message(topics.DEV_FIX_REQUESTED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -313,6 +397,7 @@ def dev_fix_completed_message(
     sender_id: str,
     fix: Dict[str, Any],
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
@@ -321,8 +406,9 @@ def dev_fix_completed_message(
     Args:
         fix: A JSON-compatible dict describing the fix artifact.
              Recommended shape: see :class:`~genus.dev.schemas.FixArtifact`.
+        phase_id: Required phase identifier from the corresponding requested message.
     """
-    extra: Dict[str, Any] = {"fix": fix}
+    extra: Dict[str, Any] = {"phase_id": phase_id, "fix": fix}
     return _build_dev_message(topics.DEV_FIX_COMPLETED, run_id, sender_id, extra, payload, metadata)
 
 
@@ -331,9 +417,14 @@ def dev_fix_failed_message(
     sender_id: str,
     error: str,
     *,
+    phase_id: str,
     payload: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Message:
-    """Build a ``dev.fix.failed`` message."""
-    extra: Dict[str, Any] = {"error": error}
+    """Build a ``dev.fix.failed`` message.
+
+    Args:
+        phase_id: Required phase identifier from the corresponding requested message.
+    """
+    extra: Dict[str, Any] = {"phase_id": phase_id, "error": error}
     return _build_dev_message(topics.DEV_FIX_FAILED, run_id, sender_id, extra, payload, metadata)
