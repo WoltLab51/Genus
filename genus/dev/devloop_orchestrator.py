@@ -35,7 +35,8 @@ and terminates.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+import logging
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from genus.communication.message_bus import MessageBus
 from genus.dev import events, topics
@@ -45,6 +46,29 @@ from genus.dev.runtime import (
     DevResponseFailedError,
     DevResponseTimeoutError,
 )
+
+if TYPE_CHECKING:
+    from genus.strategy.selector import StrategySelector
+    from genus.memory.run_journal import RunJournal
+
+logger = logging.getLogger(__name__)
+
+
+def _derive_recommendations(test_report: dict) -> list:
+    """Derive strategy recommendations from a test report.
+
+    Args:
+        test_report: Test phase report dict (may include ``failing_tests``,
+                     ``timed_out``, etc.).
+
+    Returns:
+        List of strategy recommendation strings.
+    """
+    if test_report.get("failing_tests"):
+        return ["target_failing_test_first"]
+    if test_report.get("timed_out"):
+        return ["increase_timeout_once"]
+    return []
 
 
 class DevLoopOrchestrator:
@@ -65,6 +89,14 @@ class DevLoopOrchestrator:
         timeout_s:             Default timeout in seconds for awaiting phase responses.
         max_iterations:        Maximum number of fix iterations if tests fail (default: 3).
         commit_each_iteration: Whether to commit after each fix iteration (default: True).
+        strategy_selector:     Optional :class:`~genus.strategy.selector.StrategySelector`
+                               instance. When provided, ``select_strategy()`` is called
+                               before each fix iteration and the decision is embedded in
+                               the ``dev.fix.requested`` payload.  When ``None`` (default)
+                               the orchestrator behaves exactly as before (backwards-
+                               compatible).
+        run_journal:           Optional RunJournal for logging strategy decisions.
+                               Used only when ``strategy_selector`` is also provided.
     """
 
     def __init__(
@@ -74,12 +106,16 @@ class DevLoopOrchestrator:
         timeout_s: float = 30.0,
         max_iterations: int = 3,
         commit_each_iteration: bool = True,
+        strategy_selector: "Optional[StrategySelector]" = None,
+        run_journal: "Optional[RunJournal]" = None,
     ) -> None:
         self._bus = bus
         self._sender_id = sender_id
         self._timeout_s = timeout_s
         self._max_iterations = max_iterations
         self._commit_each_iteration = commit_each_iteration
+        self._strategy_selector = strategy_selector
+        self._run_journal = run_journal
 
     # ------------------------------------------------------------------
     # Public async entrypoint
@@ -220,9 +256,40 @@ class DevLoopOrchestrator:
                     }
                 ]
 
+                # Strategy selection (optional — only when selector is provided)
+                strategy_payload: Dict[str, Any] = {}
+                if self._strategy_selector is not None:
+                    failure_class = test_report.get("failure_class")
+                    if failure_class is None:
+                        failure_class = "test_failure"
+
+                    evaluation_artifact = {
+                        "failure_class": failure_class,
+                        "strategy_recommendations": _derive_recommendations(test_report),
+                        "score": 0,
+                    }
+
+                    strategy_decision = self._strategy_selector.select_strategy(
+                        run_id=run_id,
+                        phase="fix",
+                        iteration=iteration,
+                        evaluation_artifact=evaluation_artifact,
+                    )
+                    strategy_payload = {
+                        "strategy": strategy_decision.selected_playbook,
+                        "strategy_reason": strategy_decision.reason,
+                    }
+
+                    if self._run_journal is not None:
+                        try:
+                            from genus.strategy.journal_integration import log_strategy_decision
+                            log_strategy_decision(self._run_journal, strategy_decision)
+                        except Exception as exc:  # pragma: no cover
+                            logger.warning("strategy decision could not be logged to journal: %s", exc)
+
                 fix_req = events.dev_fix_requested_message(
                     run_id, self._sender_id, findings,
-                    payload={"iteration": iteration}
+                    payload={"iteration": iteration, **strategy_payload}
                 )
                 fix_phase_id = fix_req.payload["phase_id"]
 

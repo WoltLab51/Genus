@@ -11,6 +11,11 @@ Learning Rules (v1):
 4. Record all outcomes in learning history for analytics
 
 All updates are logged and auditable.
+
+.. note::
+    GENUS 2.0 nutzt StrategyLearningAgent für event-driven Learning.
+    apply_learning_rule() ist ein low-level Helper und sollte nicht
+    direkt von außen aufgerufen werden.
 """
 
 import logging
@@ -41,6 +46,12 @@ WEIGHT_PENALTY_FAILURE = -1
 WEIGHT_PENALTY_TIMEOUT_RETRY = -5
 """Heavy penalty for timeout playbooks that failed again."""
 
+WEIGHT_MIN = -20
+"""Minimum allowed playbook weight (clamp lower bound)."""
+
+WEIGHT_MAX = 20
+"""Maximum allowed playbook weight (clamp upper bound)."""
+
 
 # ---------------------------------------------------------------------------
 # Learning rules
@@ -66,6 +77,11 @@ def apply_learning_rule(
         failure_class: Failure classification (if any).
         root_cause_hint: Root cause hint (if any).
         profile_name: Name of profile to update (default: "default").
+
+    .. deprecated::
+        Direkte Nutzung dieser Funktion ist deprecated.
+        Nutze stattdessen StrategyLearningAgent (event-driven, journal-aware).
+        Diese Funktion bleibt als interner Helper erhalten.
     """
     # Record in learning history first
     store.add_learning_entry(
@@ -114,6 +130,9 @@ def apply_learning_rule(
                 "heavy penalty %d -> %d",
                 old_weight, new_weight
             )
+
+    # Clamp weight to prevent unbounded drift
+    new_weight = max(WEIGHT_MIN, min(WEIGHT_MAX, new_weight))
 
     # Update profile
     profile.playbook_weights[playbook_id] = new_weight

@@ -1,0 +1,74 @@
+## Bezug: PR #36 — Close the learning loop
+
+Review-Ergebnis: PR ist architektonisch korrekt und merge-bereit bis auf zwei konkrete Punkte.
+
+---
+
+### ⚠️ Punkt 1 — Stiller Fehler beim Journal-Logging
+
+**Datei:** `genus/dev/devloop_orchestrator.py`
+
+**Problem:** Aktueller Code in der Journal-Logging-Sektion:
+
+```python
+try:
+    from genus.strategy.journal_integration import log_strategy_decision
+    log_strategy_decision(self._run_journal, strategy_decision)
+except Exception:
+    pass   # ← schluckt Fehler kommentarlos
+```
+
+Das `except Exception: pass` verletzt **GENUS-Prinzip 6 ("Failure is a signal, not a problem")**.
+Wenn das Journal-Logging fehlschlägt, erfährt niemand davon — kein Log, kein Audit-Trail.
+
+**Korrektur:**
+
+```python
+except Exception as exc:
+    logger.warning(
+        "strategy decision not logged to journal for run_id=%s: %s",
+        run_id, exc,
+    )
+```
+
+Bitte auch `logger = logging.getLogger(__name__)` am Modul-Anfang sicherstellen.
+
+---
+
+### ⚠️ Punkt 2 — Fehlender Test für `failure_class=None`-Fallback
+
+**Datei:** `tests/unit/test_devloop_strategy_integration.py`
+
+**Problem:** In `devloop_orchestrator.py` gibt es diesen Fallback-Pfad:
+
+```python
+failure_class = test_report.get("failure_class")
+if failure_class is None:
+    failure_class = "test_failure"  # wichtiger Pfad — aktuell ungetestet
+```
+
+Kein bestehender Test prüft diesen Pfad. In der Praxis werden viele Test-Reports kein `failure_class`-Feld enthalten.
+
+**Neuer Test** in `tests/unit/test_devloop_strategy_integration.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_strategy_failure_class_fallback_when_missing():
+    bus = MessageBus()
+    mock_selector = MagicMock()
+    mock_selector.select_strategy.return_value = _make_fake_decision()
+    orchestrator = DevLoopOrchestrator(
+        bus, sender_id="TestOrch", timeout_s=2.0,
+        strategy_selector=mock_selector,
+    )
+    # FakeResponder-Variante: Test-Report ohne 'failure_class'-Feld
+    responder = FakeResponder(bus, RUN_ID, fail_first_test=True)
+    responder.start()
+    await orchestrator.run(RUN_ID, goal="test goal")
+    call_kwargs = mock_selector.select_strategy.call_args
+    assert call_kwargs.kwargs["evaluation_artifact"]["failure_class"] == "test_failure"
+```
+
+---
+
+Beide Änderungen sind klein — kein Refactoring nötig. Direkt auf Branch `copilot/integrate-strategy-selector-devloop` einarbeiten.
