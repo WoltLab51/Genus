@@ -2,6 +2,8 @@
 
 GENUS provides a command-line interface for managing autonomous software development runs. This document describes how to use the CLI on Windows, Linux, and macOS.
 
+**Note**: GitHub push and PR creation features are planned for a future release. Currently, the CLI focuses on local run management and reporting.
+
 ## Installation
 
 First, install GENUS with the CLI entry point:
@@ -37,11 +39,7 @@ genus run --goal "Implement search feature" --requirements "Must be fast" "Suppo
 genus run --goal "Refactor database layer" --constraints "No breaking changes" "Maintain backwards compatibility"
 
 # Specify custom workspace
-genus run --goal "Build API endpoint" --workspace-root C:\Users\YourName\genus-workspaces
-
-# Enable push and PR creation (requires GITHUB_TOKEN)
-$env:GITHUB_TOKEN = "your_github_token"
-genus run --goal "Fix bug #123" --push --create-pr
+genus run --goal "Build API endpoint" --workspace-root ~/genus-workspaces
 ```
 
 **Linux/macOS Examples:**
@@ -58,11 +56,9 @@ genus run --goal "Refactor database layer" --constraints "No breaking changes" "
 
 # Specify custom workspace
 genus run --goal "Build API endpoint" --workspace-root ~/genus-workspaces
-
-# Enable push and PR creation (requires GITHUB_TOKEN)
-export GITHUB_TOKEN="your_github_token"
-genus run --goal "Fix bug #123" --push --create-pr
 ```
+
+**Note**: The examples previously showing `--push` and `--create-pr` flags have been removed. GitHub publishing functionality will be added in a future release.
 
 **Options:**
 
@@ -72,11 +68,11 @@ genus run --goal "Fix bug #123" --push --create-pr
 - `--workspace-root`: Custom workspace directory (default: `~/genus-workspaces`)
 - `--runs-store-dir`: Custom directory for run journals
 - `--branch`: Git branch name to work on
-- `--push`: Enable git push to remote (default: disabled)
-- `--create-pr`: Enable PR creation (default: disabled)
 - `--github-owner`: GitHub repository owner
 - `--github-repo`: GitHub repository name
 - `--github-base-branch`: Base branch for PRs (default: `main`)
+
+**Note**: GitHub push and PR creation flags (`--push` and `--create-pr`) have been removed in favor of a more robust implementation coming in a future PR.
 
 ### `genus resume` - Resume an Interrupted Run
 
@@ -165,45 +161,6 @@ genus report --run-id "2026-04-06T12-00-00Z__feature-auth__abc123" --format md -
 
 ## Environment Variables
 
-### `GITHUB_TOKEN`
-
-Required when using `--push` or `--create-pr` flags. This should be a GitHub personal access token with repository access.
-
-**Setting on Windows PowerShell:**
-
-```powershell
-$env:GITHUB_TOKEN = "ghp_your_token_here"
-```
-
-**Setting on Linux/macOS:**
-
-```bash
-export GITHUB_TOKEN="ghp_your_token_here"
-```
-
-**Permanent Setup (Linux/macOS):**
-
-Add to `~/.bashrc` or `~/.zshrc`:
-
-```bash
-export GITHUB_TOKEN="ghp_your_token_here"
-```
-
-**Permanent Setup (Windows PowerShell):**
-
-Add to your PowerShell profile:
-
-```powershell
-# Find your profile location
-$PROFILE
-
-# Edit the profile
-notepad $PROFILE
-
-# Add this line:
-$env:GITHUB_TOKEN = "ghp_your_token_here"
-```
-
 ### `GENUS_RUNSTORE_DIR`
 
 Override the default runs store directory. This is where run journals and artifacts are saved.
@@ -216,21 +173,19 @@ export GENUS_RUNSTORE_DIR="/custom/path/to/runs"
 
 GENUS CLI is designed with **safety-first defaults**:
 
-### Push and PR Creation: Disabled by Default
+### Local Operation
 
-By default, GENUS will **NOT**:
-- Push changes to remote repositories
-- Create pull requests
+By default, GENUS operates locally:
+- All runs execute in isolated workspaces
+- Run journals and artifacts are stored locally
+- No automatic push or PR creation
 
-You must explicitly enable these with `--push` and `--create-pr` flags.
+### GitHub Integration (Future)
 
-### Token Requirement
-
-If you try to use `--push` or `--create-pr` without setting `GITHUB_TOKEN`, the CLI will fail with a clear error message:
-
-```
-Error: GITHUB_TOKEN environment variable is required for push/PR operations.
-```
+GitHub push and PR creation features are planned for a future release. When implemented, they will:
+- Be disabled by default
+- Require explicit user confirmation
+- Validate required credentials before execution
 
 ### No Secrets in Output
 
