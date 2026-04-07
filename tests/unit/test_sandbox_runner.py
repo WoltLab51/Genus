@@ -18,7 +18,7 @@ from genus.workspace.workspace import RunWorkspace
 from genus.sandbox.models import SandboxCommand, SandboxPolicyError
 from genus.sandbox.policy import SandboxPolicy
 from genus.sandbox.runner import SandboxRunner
-from genus.security.kill_switch import KillSwitch
+from genus.security.kill_switch import KillSwitch, KillSwitchActiveError
 
 
 class TestSandboxRunnerKillSwitch:
@@ -26,14 +26,13 @@ class TestSandboxRunnerKillSwitch:
 
     @pytest.mark.asyncio
     async def test_kill_switch_disabled_blocks_execution(self):
-        """Disabled kill-switch should block execution."""
+        """Active kill-switch should block execution with KillSwitchActiveError."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = RunWorkspace(run_id="test-001", root=Path(tmpdir))
             workspace.ensure_dirs()
 
             kill_switch = KillSwitch()
-            with pytest.warns(DeprecationWarning, match="disable\\(\\) is deprecated"):
-                kill_switch.disable()
+            kill_switch.activate(reason="test")
 
             policy = SandboxPolicy()
             runner = SandboxRunner(
@@ -44,21 +43,18 @@ class TestSandboxRunnerKillSwitch:
 
             cmd = SandboxCommand(argv=["python", "-m", "pytest"], cwd=".")
 
-            with pytest.warns(DeprecationWarning, match="assert_enabled\\(\\) is deprecated"):
-                with pytest.raises(RuntimeError) as exc_info:
-                    await runner.run(cmd)
-            assert "Sandbox execution disabled" in str(exc_info.value)
+            with pytest.raises(KillSwitchActiveError):
+                await runner.run(cmd)
 
     @pytest.mark.asyncio
     async def test_kill_switch_enabled_allows_execution(self):
-        """Enabled kill-switch should allow execution."""
+        """Inactive kill-switch should allow execution."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = RunWorkspace(run_id="test-002", root=Path(tmpdir))
             workspace.ensure_dirs()
 
             kill_switch = KillSwitch()
-            with pytest.warns(DeprecationWarning, match="enable\\(\\) is deprecated"):
-                kill_switch.enable()
+            # KillSwitch is inactive by default; no need to call enable()
 
             policy = SandboxPolicy()
             runner = SandboxRunner(
@@ -69,9 +65,7 @@ class TestSandboxRunnerKillSwitch:
 
             cmd = SandboxCommand(argv=["python", "--version"], cwd=".")
 
-            # Should not raise; runner internally calls assert_enabled() (deprecated)
-            with pytest.warns(DeprecationWarning, match="assert_enabled\\(\\) is deprecated"):
-                result = await runner.run(cmd, timeout_s=5)
+            result = await runner.run(cmd, timeout_s=5)
             assert result is not None
 
 

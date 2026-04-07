@@ -17,7 +17,7 @@ from genus.sandbox.models import (
     SandboxError,
 )
 from genus.sandbox.policy import SandboxPolicy
-from genus.security.kill_switch import KillSwitch, DEFAULT_KILL_SWITCH
+from genus.security.kill_switch import KillSwitch, KillSwitchActiveError, DEFAULT_KILL_SWITCH
 
 
 class SandboxRunner:
@@ -89,12 +89,12 @@ class SandboxRunner:
             SandboxResult with execution details.
 
         Raises:
-            RuntimeError: If kill-switch is disabled.
+            KillSwitchActiveError: If the kill-switch is active.
             SandboxPolicyError: If command violates policy.
             SandboxError: If execution fails.
         """
         # Check kill-switch
-        self.kill_switch.assert_enabled()
+        self.kill_switch.assert_not_active()
 
         # Validate command against policy
         self.policy.validate(cmd)
