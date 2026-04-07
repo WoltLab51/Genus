@@ -38,7 +38,7 @@
 | **EventRecorderAgent** | Subscribt auf Whitelist-Topics, schreibt in EventStore | ✅ Implementiert | `genus/agents/event_recorder_agent.py` |
 | **FeedbackAgent** | Bridges `outcome.recorded` → RunJournal (log_event + save_artifact) | ✅ Implementiert | `genus/feedback/agent.py` |
 | **QualityScorecard** | Strukturiertes Bewertungsobjekt | ✅ Implementiert | `genus/quality/scorecard.py` |
-| **API-Layer (FastAPI)** | `/health`, `/runs`, `/outcome`; Bearer-Auth, strukturierte Fehler | ✅ Implementiert (Phase 1) | `genus/api/` |
+| **API-Layer (FastAPI)** | `/health`, `/runs`, `/outcome`, `/kill-switch`; Bearer-Auth, strukturierte Fehler | ✅ Implementiert (Phase 1 + 2) | `genus/api/` |
 | **DataSanitizerAgent** | Bereinigt `data.collected` → `data.sanitized` (Whitelist, Größenlimits, Evidence) | ✅ Implementiert (P1-C) | `genus/agents/data_sanitizer_agent.py` |
 | **Orchestrator** | Koordiniert Agenten-Workflows, Fehler-Recovery | 🔜 Geplant | – |
 | **Builder** | Erstellt/konfiguriert Agenten dynamisch | 🔜 Geplant | – |
@@ -161,10 +161,10 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 - **Sandbox-Fix** (#46) – `assert_not_active()` statt deprecated `assert_enabled()`
 - **P2** (#PR) – Rollenmodell: `Role.READER/OPERATOR/ADMIN`, `topics_for_role()`, `build_policy_from_roles()`, `default_pipeline_policy()`
 - **API Phase 1** (#PR) – FastAPI Layer: `/health`, `/runs`, `/outcome`; Bearer-Auth; strukturierte Fehler
+- **API Phase 2** (#PR) – `/kill-switch` Endpoint: activate/deactivate/status, Admin-only, KillSwitch-Integration
 
 ### ⏳ Next
 
-- API Phase 2: `/kill-switch` Endpoint (Admin only)
 - Orchestrator + Builder vollständig (P3)
 - `outcome.recorded` Agent-Wrapper + API-Adapter
 

@@ -19,6 +19,7 @@
 | **API-Key-Authentifizierung** | Alle Endpunkte außer `/health` verlangen `Authorization: Bearer <key>` | `genus/api/middleware.py` ✅ |
 | **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (kein Stack-Trace) | `genus/api/errors.py` ✅ |
 | **Rollenmodell** | `Role.READER/OPERATOR/ADMIN` als Capability-Bündel; `build_policy_from_roles()` übersetzt Rollen in TopicAclPolicy | `genus/security/roles.py`, `genus/security/role_acl.py` ✅ |
+| **Kill-Switch API-Endpoint** | `POST /kill-switch/activate` und `/deactivate` erfordern Admin-Rolle; `GET /kill-switch/status` erfordert Operator | `genus/api/routers/kill_switch.py` ✅ |
 | **Append-only EventStore** | Events können nicht mutiert oder gelöscht werden – manipulationssicheres Audit-Log | `genus/memory/jsonl_event_store.py` |
 
 ---
