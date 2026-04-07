@@ -1,6 +1,6 @@
 # GENUS – Sicherheitsposture
 
-> **Stand:** 2026-04-05 | Sprache: Deutsch
+> **Stand:** 2026-04-07 | Sprache: Deutsch
 
 ---
 
@@ -16,8 +16,9 @@
 | **Filename-Sanitierung** | `run_id` wird vor Dateizugriff sanitiert; Path-Traversal-Sequenzen (`..`) werfen `ValueError` | `genus/memory/jsonl_event_store.py`: `sanitize_run_id()` |
 | **Topic-ACL (opt-in)** | Exact-match Whitelist, welche Sender auf welchen Topics publishen dürfen. Standardmäßig permissiv; Enforcement nur bei `acl_enforced=True` | `genus/security/topic_acl.py`, `genus/communication/message_bus.py` |
 | **Kill-Switch (opt-in)** | Globaler Notfall-Stop; blockiert alle `publish()`-Aufrufe außer einer konfigurierbaren Allowlist | `genus/security/kill_switch.py`, `genus/communication/message_bus.py` |
-| **API-Key-Authentifizierung** | Alle Endpunkte außer `/health` verlangen `Authorization: Bearer <key>` | 🔜 Geplant – `genus/api/middleware.py` (noch nicht implementiert) |
-| **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (außer Debug-Mode) | 🔜 Geplant – `genus/api/errors.py` (noch nicht implementiert) |
+| **API-Key-Authentifizierung** | Alle Endpunkte außer `/health` verlangen `Authorization: Bearer <key>` | `genus/api/middleware.py` ✅ |
+| **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (kein Stack-Trace) | `genus/api/errors.py` ✅ |
+| **Rollenmodell** | `Role.READER/OPERATOR/ADMIN` als Capability-Bündel; `build_policy_from_roles()` übersetzt Rollen in TopicAclPolicy | `genus/security/roles.py`, `genus/security/role_acl.py` ✅ |
 | **Append-only EventStore** | Events können nicht mutiert oder gelöscht werden – manipulationssicheres Audit-Log | `genus/memory/jsonl_event_store.py` |
 
 ---
@@ -45,23 +46,25 @@
 
 ## 3. Geplante Sicherheitsmaßnahmen
 
-### P1-C: DataSanitizerAgent (Whitelist-basiert)
+### P1-C: DataSanitizerAgent ✅ (implementiert)
 
 ```
 data.collected  →  DataSanitizerAgent  →  data.sanitized
 ```
 
-- **Whitelist-Felder**: Nur explizit erlaubte Felder werden in `data.sanitized` aufgenommen
-- **Regex-Redaction**: PII-Patterns (E-Mail, Telefon, IP) werden vor Weitergabe entfernt
-- **Evidence**: `redaction_applied`, `pii_detected`, `removed_fields` im Payload dokumentiert
-- **Größenlimit**: Payloads über einem konfigurierbaren Limit werden abgelehnt
+- **Whitelist-Felder**: Nur explizit erlaubte Felder (`source`, `timestamp`, `type`, `event_type`, `metrics`) werden in `data.sanitized` aufgenommen
+- **Größenlimits**: `max_str_len=256`, `max_list_len=50`, `max_depth=5`, `max_keys_per_level=50`
+- **Evidence**: `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy` im Payload
+- **Kein Silent Drop**: Jedes `data.collected` erzeugt genau ein `data.sanitized`
+
+**Referenz:** `genus/agents/data_sanitizer_agent.py`, `genus/security/sanitization/sanitization_policy.py`
 
 ### P2: Berechtigungen / Rollen ✅ (opt-in implementiert)
 
 | Feature | Beschreibung | Status |
 |---|---|---|
 | **Topic-ACL (opt-in)** | `TopicAclPolicy`: exact-match Mapping `sender_id → set[topic]`; Enforcement via `acl_enforced=True` am MessageBus | ✅ Heute |
-| **Rollen** | Unterscheidung: Operator / Reader / Admin | 🔜 Geplant |
+| **Rollen** | `Role.READER` (beobachten), `Role.OPERATOR` (Run, Feedback), `Role.ADMIN` (Kill-Switch, ACL) | ✅ Implementiert |
 | **Audit-Log für Rollen-Zugriffe** | Wer hat wann welches Topic publisht? | 🔜 Geplant |
 
 #### Topic-ACL: opt-in Enforcement

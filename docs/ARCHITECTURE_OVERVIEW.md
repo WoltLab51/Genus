@@ -29,7 +29,8 @@ GENUS folgt dem Clean-Architecture-Prinzip mit einer **strikten Dependency-Richt
 | `genus/quality/` | `genus/core/` |
 | `genus/memory/` | `genus/core/`, `genus/communication/` |
 | `genus/agents/` | `genus/core/`, `genus/communication/`, `genus/quality/`, `genus/memory/` |
-| `genus/api/` | Alle Module (Kompositions-Root) – **🔜 Geplant**, existiert noch nicht im Repo |
+| `genus/security/` | `genus/core/` | TopicAclPolicy, KillSwitch, Rollenmodell, SanitizationPolicy |
+| `genus/api/` | Alle Module (Kompositions-Root) – **✅ Phase 1 implementiert** |
 
 ---
 
@@ -74,15 +75,26 @@ GENUS folgt dem Clean-Architecture-Prinzip mit einer **strikten Dependency-Richt
 | `FeedbackAgent` | `outcome.recorded` | `feedback.received` | ✅ |
 | `DataSanitizerAgent` | `data.collected` | `data.sanitized` | ✅ |
 
-### `genus/api/` – REST-API (FastAPI) – 🔜 Geplant
-
-> **Hinweis:** Das Modul `genus/api/` existiert aktuell **nicht** im Repository. Die folgenden Komponenten sind geplant (P2/P3), aber noch nicht implementiert.
-
-| Komponente | Verantwortung |
+### `genus/security/` – Sicherheitsschicht
+| Datei | Verantwortung |
 |---|---|
-| `app.py` | FastAPI App-Factory, Lifespan-Kontext, Dependency-Injection |
-| `middleware.py` | API-Key-Authentifizierung (`Authorization: Bearer <key>`) |
-| `errors.py` | `ErrorHandlingMiddleware`: strukturierte JSON-Fehlerantworten |
+| `topic_acl.py` | `TopicAclPolicy`: exact-match Sender→Topic Whitelist |
+| `kill_switch.py` | `KillSwitch`: globaler Notfall-Stop für `MessageBus.publish()` |
+| `roles.py` | `Role` Enum (READER/OPERATOR/ADMIN), `topics_for_role()` |
+| `role_acl.py` | `build_policy_from_roles()`: Rollen → TopicAclPolicy |
+| `acl_presets.py` | `default_pipeline_policy()`, `default_orchestrator_toolexecutor_policy()` |
+| `sanitization/` | `SanitizationPolicy`, `sanitize_payload()` |
+
+### `genus/api/` – REST-API (FastAPI) — Phase 1 ✅
+| Datei | Verantwortung |
+|---|---|
+| `app.py` | `create_app()`: FastAPI App-Factory, Lifespan-Kontext, Middleware-Wiring |
+| `middleware.py` | `ApiKeyMiddleware`: Bearer-Token-Prüfung (`Authorization: Bearer <key>`), exempt: `/health` |
+| `errors.py` | `ErrorHandlingMiddleware`: strukturierte JSON-Fehlerantworten, kein Stack-Trace |
+| `deps.py` | FastAPI Dependencies: `get_message_bus()`, `verify_operator()` |
+| `routers/health.py` | `GET /health` — Liveness-Check, kein Auth |
+| `routers/runs.py` | `POST /runs` — Run starten via `run.started` auf MessageBus |
+| `routers/outcome.py` | `POST /outcome` — Feedback via `outcome.recorded` auf MessageBus |
 
 ---
 
@@ -181,5 +193,6 @@ run_id = require_run_id(message)  # Wirft Exception, wenn nicht gesetzt
 | **Builder** | `genus/builder/` | core, agents | Erstellt Agenten aus Konfiguration |
 | **Sandbox** | `genus/sandbox/` | core | Isolierte Tool-Ausführung |
 | **DataSanitizerAgent** | `genus/agents/` | core, communication, memory | Nächster geplanter Agent (P1-C) |
-| **Permissions/Rollen** | `genus/security/` | core, api | Granulare Zugriffskontrolle |
-| **Kill-Switch** | `genus/core/` oder `genus/api/` | core, communication | Notfall-Stop für laufende Runs |
+| **Permissions/Rollen** | `genus/security/` | core, api | ✅ Rollenmodell implementiert: Role.READER/OPERATOR/ADMIN |
+| **API-Layer Phase 1** | `genus/api/` | core, communication | ✅ /health, /runs, /outcome |
+| **API Phase 2** | `genus/api/routers/` | security | /kill-switch (Admin only) |

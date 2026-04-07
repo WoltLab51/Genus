@@ -1,7 +1,7 @@
 # GENUS – Roter Faden (Einstiegspunkt)
 
 > **Sprache:** Deutsch  
-> **Stand:** 2026-04-05  
+> **Stand:** 2026-04-07  
 > **Version:** GENUS-2.0
 
 ---
@@ -13,7 +13,7 @@
 ### Ziele
 - Klare Trennung von Analyse, Qualitätsbewertung und Entscheidungslogik
 - Vollständige Nachvollziehbarkeit jedes Runs via `run_id` + EventStore
-- Sichere Persistenz ohne Rohdaten (Whitelist-Recorder + geplanter Sanitizer)
+- Sichere Persistenz ohne Rohdaten (Whitelist-Recorder + DataSanitizerAgent ✅)
 - Erweiterbarkeit durch saubere Modulgrenzen (Clean Architecture)
 
 ### Nicht-Ziele
@@ -38,7 +38,7 @@
 | **EventRecorderAgent** | Subscribt auf Whitelist-Topics, schreibt in EventStore | ✅ Implementiert | `genus/agents/event_recorder_agent.py` |
 | **FeedbackAgent** | Bridges `outcome.recorded` → RunJournal (log_event + save_artifact) | ✅ Implementiert | `genus/feedback/agent.py` |
 | **QualityScorecard** | Strukturiertes Bewertungsobjekt | ✅ Implementiert | `genus/quality/scorecard.py` |
-| **API-Layer (FastAPI)** | REST-Endpunkte, Auth-Middleware, Fehlerbehandlung | 🔜 Geplant | – (kein `genus/api/`-Modul vorhanden) |
+| **API-Layer (FastAPI)** | `/health`, `/runs`, `/outcome`; Bearer-Auth, strukturierte Fehler | ✅ Implementiert (Phase 1) | `genus/api/` |
 | **DataSanitizerAgent** | Bereinigt `data.collected` → `data.sanitized` (Whitelist, Größenlimits, Evidence) | ✅ Implementiert (P1-C) | `genus/agents/data_sanitizer_agent.py` |
 | **Orchestrator** | Koordiniert Agenten-Workflows, Fehler-Recovery | 🔜 Geplant | – |
 | **Builder** | Erstellt/konfiguriert Agenten dynamisch | 🔜 Geplant | – |
@@ -159,13 +159,14 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 - **Feedback-Loop** (#42) – FeedbackAgent: `outcome.recorded` → RunJournal + `feedback.received`
 - **Verfassung** (#45) – ARCHITECTURE.md als GENUS-2.0-Steuerdokument (Anti-Drift)
 - **Sandbox-Fix** (#46) – `assert_not_active()` statt deprecated `assert_enabled()`
+- **P2** (#PR) – Rollenmodell: `Role.READER/OPERATOR/ADMIN`, `topics_for_role()`, `build_policy_from_roles()`, `default_pipeline_policy()`
+- **API Phase 1** (#PR) – FastAPI Layer: `/health`, `/runs`, `/outcome`; Bearer-Auth; strukturierte Fehler
 
 ### ⏳ Next
 
-- Permissions/Rollen (P2): Rollen Operator / Reader / Admin
-- API-Layer FastAPI (P2/P3): REST-Endpunkte, Auth-Middleware
-- Orchestrator / Builder vollständig (P3)
-- `outcome.recorded` Agent-Wrapper + API-Adapter (Calibration/Policy-Nutzung)
+- API Phase 2: `/kill-switch` Endpoint (Admin only)
+- Orchestrator + Builder vollständig (P3)
+- `outcome.recorded` Agent-Wrapper + API-Adapter
 
 ### 🔒 Security-Gates
 
@@ -185,7 +186,7 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 | [`docs/POLICIES.md`](./POLICIES.md) | Decision-Semantik, min_quality, Critical Gate, QM-preferred |
 | [`docs/SECURITY.md`](./SECURITY.md) | Sicherheitsposture, Threat Model, geplante Maßnahmen |
 | [`docs/OPERATIONS.md`](./OPERATIONS.md) | Konfiguration, EventStore-Pfad, Debugging-Checkliste |
-| [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) | Technische Architektur-Referenz (Englisch) |
+| [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) | GENUS-2.0 Verfassung — Orchestratoren, Journal-SSOT, Dependency-Regeln, 6 unveränderliche Prinzipien |
 
 ---
 
@@ -206,7 +207,8 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 | **Decision-Semantik** | Mögliche Entscheidungen des `DecisionAgent`: `accept` (Qualität ausreichend), `retry` (Qualität knapp unter Schwelle, Wiederholung sinnvoll), `replan` (Qualität zu niedrig, neuer Plan nötig), `escalate` (kritischer Fall, manuelles Eingreifen), `delegate` (an anderen Agenten übergeben). |
 | **Critical Gate** | Regel: Wenn `risk=high` oder `critical=True` im Payload und keine expliziten `requirements` definiert sind, erzwingt `DecisionAgent` die Entscheidung `escalate`. Verhindert automatische Akzeptanz bei risikobehafteten Fällen. |
 | **requirements / min_quality** | Konfigurierbare Qualitätsschwelle (Standard: `0.8`). `DecisionAgent` vergleicht `quality_score >= min_quality` für die `accept`-Entscheidung. Kann per Payload oder Konfiguration überschrieben werden. |
-| **DataSanitizerAgent** | Subscribt auf `data.collected`, bereinigt via `SanitizationPolicy` (Whitelist, Größenlimits, kein Silent Drop), publiziert `data.sanitized` mit Evidence-Record. Implementiert in `genus/agents/data_sanitizer_agent.py`. |
+| **DataSanitizerAgent** | Subscribt auf `data.collected`, bereinigt via `SanitizationPolicy` (Whitelist, Größenlimits, kein Silent Drop), publiziert `data.sanitized` mit Evidence-Record. `genus/agents/data_sanitizer_agent.py`. |
+| **Rollenmodell (P2)** | `Role.READER` (beobachten), `Role.OPERATOR` (Run starten, Feedback geben), `Role.ADMIN` (Kill-Switch, ACL-Änderungen). Rollen = Capability-Bündel, keine Usertypen. `genus/security/roles.py`. |
 
 ---
 
