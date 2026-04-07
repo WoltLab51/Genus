@@ -261,11 +261,11 @@ class StrategyLearningAgent(DevAgentBase):
     async def _handle_feedback_received(self, msg: Message) -> None:
         """Handle feedback.received — apply human outcome signal to strategy weights.
 
-        Signal mapping:
-        - outcome="good"    → weight += 1 (if score_delta >= FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD)
-        - outcome="bad"     → weight -= 1 (if score_delta <= FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD)
+        Both outcome and score_delta must agree for a weight change to occur:
+        - outcome="good" and score_delta >= FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD → weight += 1
+        - outcome="bad"  and score_delta <= FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD → weight -= 1
         - outcome="unknown" → no weight change, only journal log
-        - score_delta in (-3.0, 3.0) → neutral, no change
+        - outcome/score_delta mismatch or score_delta in (-3.0, 3.0) → neutral, no change
 
         Args:
             msg: The feedback.received message.
@@ -348,10 +348,10 @@ class StrategyLearningAgent(DevAgentBase):
                 )
                 return
 
-            # 8. Calculate weight_change from score_delta using feedback thresholds
-            if score_delta >= FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD:
+            # 8. Calculate weight_change from outcome + score_delta using feedback thresholds
+            if outcome == "good" and score_delta >= FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD:
                 weight_change = 1
-            elif score_delta <= FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD:
+            elif outcome == "bad" and score_delta <= FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD:
                 weight_change = -1
             else:
                 weight_change = 0
