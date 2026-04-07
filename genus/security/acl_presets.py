@@ -17,6 +17,16 @@ Example usage::
 from genus.security.topic_acl import TopicAclPolicy
 from genus.run import topics as run_topics
 from genus.tools import topics as tool_topics
+from typing import Dict, Set
+
+_PIPELINE_GRANTS: Dict[str, Set[str]] = {
+    "DataCollectorAgent":  {"data.collected"},
+    "DataSanitizerAgent":  {"data.sanitized"},
+    "AnalysisAgent":       {"analysis.completed"},
+    "QualityAgent":        {"quality.scored"},
+    "DecisionAgent":       {"decision.made"},
+    "FeedbackAgent":       {"feedback.received"},
+}
 
 
 def default_orchestrator_toolexecutor_policy() -> TopicAclPolicy:
@@ -48,5 +58,33 @@ def default_orchestrator_toolexecutor_policy() -> TopicAclPolicy:
     tool_executor_id = "ToolExecutor"
     policy.allow(tool_executor_id, tool_topics.TOOL_CALL_SUCCEEDED)
     policy.allow(tool_executor_id, tool_topics.TOOL_CALL_FAILED)
+
+    return policy
+
+
+def default_pipeline_policy() -> TopicAclPolicy:
+    """Create a default ACL policy for the standard GENUS agent pipeline.
+
+    Grants each pipeline agent exactly the topics it needs to publish:
+
+    - DataCollectorAgent  → ``data.collected``
+    - DataSanitizerAgent  → ``data.sanitized``
+    - AnalysisAgent       → ``analysis.completed``
+    - QualityAgent        → ``quality.scored``
+    - DecisionAgent       → ``decision.made``
+    - FeedbackAgent       → ``feedback.received``
+    - EventRecorderAgent  → (no publish; recorder only subscribes)
+
+    This policy is deny-by-default: any agent not listed here cannot
+    publish on any topic when ACL enforcement is active.
+
+    Returns:
+        A TopicAclPolicy configured for the standard pipeline.
+    """
+    policy = TopicAclPolicy()
+
+    for agent_id, topics in _PIPELINE_GRANTS.items():
+        for topic in topics:
+            policy.allow(agent_id, topic)
 
     return policy
