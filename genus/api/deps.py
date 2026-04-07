@@ -52,3 +52,23 @@ def verify_admin(request: Request) -> None:
 def get_kill_switch(request: Request) -> Optional[object]:
     """Return the KillSwitch instance from app state, or None."""
     return getattr(request.app.state, "kill_switch", None)
+
+
+def assert_kill_switch_consistent(app) -> None:
+    """Assert that app.state.kill_switch and MessageBus.kill_switch are the same instance.
+
+    Call this during lifespan startup to catch misconfiguration early.
+
+    Raises:
+        RuntimeError: If both are set but are different instances.
+    """
+    api_ks = getattr(app.state, "kill_switch", None)
+    bus = getattr(app.state, "message_bus", None)
+    if api_ks is None or bus is None:
+        return
+    bus_ks = getattr(bus, "_kill_switch", None) or getattr(bus, "kill_switch", None)
+    if bus_ks is not None and bus_ks is not api_ks:
+        raise RuntimeError(
+            "KillSwitch mismatch: app.state.kill_switch and MessageBus.kill_switch "
+            "are different instances. POST /kill-switch/activate would have no effect on the bus."
+        )

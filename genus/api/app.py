@@ -17,21 +17,30 @@ from genus.api.routers import health, outcome, runs
 from genus.api.routers import kill_switch as kill_switch_router
 
 
-def create_app(*, api_key: str, message_bus=None, kill_switch=None) -> FastAPI:
+def create_app(*, api_key: str, message_bus=None, kill_switch=None, use_lifespan: bool = False) -> FastAPI:
     """Create and configure the GENUS FastAPI application.
 
     Args:
-        api_key:      The API key required for Operator/Admin endpoints.
-        message_bus:  Optional MessageBus instance (injected for testing).
-        kill_switch:  Optional KillSwitch instance (injected for testing/production).
+        api_key:       Required API key for Bearer authentication.
+        message_bus:   Injected MessageBus (for tests). If None and use_lifespan=False, bus is None.
+        kill_switch:   Injected KillSwitch (for tests).
+        use_lifespan:  If True, use genus_lifespan for production startup.
+                       If False (default), no automatic agent startup (test mode).
 
     Returns:
         Configured FastAPI application.
     """
+    if use_lifespan:
+        from genus.api.lifespan import genus_lifespan
+        lifespan = genus_lifespan
+    else:
+        lifespan = None
+
     app = FastAPI(
         title="GENUS API",
         version=API_VERSION,
         description="GENUS-2.0 external interface",
+        lifespan=lifespan,
     )
 
     # Store dependencies in app state
