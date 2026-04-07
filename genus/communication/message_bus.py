@@ -228,7 +228,10 @@ class MessageBus:
                 callback(message)
         except Exception as e:
             # Log error but don't crash the bus
-            print(f"Error delivering message: {e}")
+            logger.error(
+                "MessageBus: error delivering message on topic %r: %s",
+                message.topic, e, exc_info=True,
+            )
 
     def _get_matching_subscribers(self, topic: str) -> Set[str]:
         """

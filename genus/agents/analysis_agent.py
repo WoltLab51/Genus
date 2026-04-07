@@ -1,4 +1,8 @@
+import logging
+
 from genus.core.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisAgent(Agent):
@@ -19,7 +23,7 @@ class AnalysisAgent(Agent):
             "temperature": temperature,
             "classification": classification
         }
-        print(f"[Analysis] Temperature: {temperature} → {classification}")
+        logger.debug("[Analysis] Temperature: %s → %s", temperature, classification)
         await self.message_bus.publish(
             topic="data.analyzed",
             data=result

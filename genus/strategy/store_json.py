@@ -48,6 +48,7 @@ GENUS_STRATEGY_STORE_DIR: Override the default base directory (var/strategy/)
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -89,6 +90,7 @@ class StrategyStoreJson:
             or _DEFAULT_BASE_DIR
         )
         self._store_path = self._base_dir / _STORE_FILENAME
+        self._lock = threading.Lock()
         self._ensure_base_dir()
 
     # ------------------------------------------------------------------
@@ -187,9 +189,10 @@ class StrategyStoreJson:
         Args:
             profile: The profile to save.
         """
-        data = self._load_store()
-        data["profiles"][profile.name] = profile.to_dict()
-        self._save_store(data)
+        with self._lock:
+            data = self._load_store()
+            data["profiles"][profile.name] = profile.to_dict()
+            self._save_store(data)
 
     def list_profiles(self) -> List[str]:
         """List all profile names.
@@ -221,17 +224,18 @@ class StrategyStoreJson:
             selected_playbook: The playbook that was used.
             outcome_score: The final score/outcome (0-100).
         """
-        data = self._load_store()
-        entry = {
-            "run_id": run_id,
-            "failure_class": failure_class,
-            "root_cause_hint": root_cause_hint,
-            "selected_playbook": selected_playbook,
-            "outcome_score": outcome_score,
-            "learned_at": datetime.now(timezone.utc).isoformat(),
-        }
-        data["learning_history"].append(entry)
-        self._save_store(data)
+        with self._lock:
+            data = self._load_store()
+            entry = {
+                "run_id": run_id,
+                "failure_class": failure_class,
+                "root_cause_hint": root_cause_hint,
+                "selected_playbook": selected_playbook,
+                "outcome_score": outcome_score,
+                "learned_at": datetime.now(timezone.utc).isoformat(),
+            }
+            data["learning_history"].append(entry)
+            self._save_store(data)
         logger.info(
             "Added learning entry for run_id=%s, playbook=%s, score=%d",
             run_id, selected_playbook, outcome_score
@@ -275,9 +279,10 @@ class StrategyStoreJson:
 
         Useful for testing or reset scenarios.
         """
-        data = self._load_store()
-        data["learning_history"] = []
-        self._save_store(data)
+        with self._lock:
+            data = self._load_store()
+            data["learning_history"] = []
+            self._save_store(data)
         logger.info("Cleared learning history")
 
     # ------------------------------------------------------------------
@@ -316,16 +321,17 @@ class StrategyStoreJson:
             playbook_id: The playbook identifier.
             weight: The weight to set (integer, typically -20 to +20).
         """
-        data = self._load_store()
+        with self._lock:
+            data = self._load_store()
 
-        if "failure_class_weights" not in data:
-            data["failure_class_weights"] = {}
+            if "failure_class_weights" not in data:
+                data["failure_class_weights"] = {}
 
-        if failure_class not in data["failure_class_weights"]:
-            data["failure_class_weights"][failure_class] = {}
+            if failure_class not in data["failure_class_weights"]:
+                data["failure_class_weights"][failure_class] = {}
 
-        data["failure_class_weights"][failure_class][playbook_id] = weight
-        self._save_store(data)
+            data["failure_class_weights"][failure_class][playbook_id] = weight
+            self._save_store(data)
 
         logger.debug(
             "Set failure_class_weight: %s / %s = %d",
@@ -354,7 +360,8 @@ class StrategyStoreJson:
 
         Useful for testing or reset scenarios.
         """
-        data = self._load_store()
-        data["failure_class_weights"] = {}
-        self._save_store(data)
+        with self._lock:
+            data = self._load_store()
+            data["failure_class_weights"] = {}
+            self._save_store(data)
         logger.info("Cleared all failure_class_weights")
