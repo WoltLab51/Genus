@@ -24,6 +24,7 @@ from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Any
 from genus.communication.message_bus import Message, MessageBus
 from genus.core.run import get_run_id
 from genus.dev.agents.base import DevAgentBase
+from genus.feedback.topics import FEEDBACK_RECEIVED
 from genus.memory.run_journal import RunJournal
 from genus.memory.store_jsonl import JsonlRunStore
 from genus.meta import topics as meta_topics
@@ -50,6 +51,12 @@ WEIGHT_MIN = -20
 
 WEIGHT_MAX = 20
 """Maximum weight value (clamp ceiling)."""
+
+FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD = 3.0
+"""score_delta threshold for positive feedback weight update."""
+
+FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD = -3.0
+"""score_delta threshold for negative feedback weight update."""
 
 
 class StrategyLearningAgent(DevAgentBase):
@@ -97,9 +104,10 @@ class StrategyLearningAgent(DevAgentBase):
         self._strategy_store = strategy_store or StrategyStoreJson()
 
     def _subscribe_topics(self) -> List[Tuple[str, Callable[[Message], Awaitable[None]]]]:
-        """Register handler for evaluation completion events."""
+        """Register handler for evaluation completion and feedback events."""
         return [
             (meta_topics.META_EVALUATION_COMPLETED, self._handle_evaluation_completed),
+            (FEEDBACK_RECEIVED, self._handle_feedback_received),
         ]
 
     async def _handle_evaluation_completed(self, msg: Message) -> None:
@@ -246,6 +254,201 @@ class StrategyLearningAgent(DevAgentBase):
                         "error_type": type(exc).__name__,
                     },
                 )
+            except Exception:
+                # If even logging fails, at least we have the logger output
+                pass
+
+    async def _handle_feedback_received(self, msg: Message) -> None:
+        """Handle feedback.received — apply human outcome signal to strategy weights.
+
+        Both outcome and score_delta must agree for a weight change to occur:
+        - outcome="good" and score_delta >= FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD → weight += 1
+        - outcome="bad"  and score_delta <= FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD → weight -= 1
+        - outcome="unknown" → no weight change, only journal log
+        - outcome/score_delta mismatch or score_delta in (-3.0, 3.0) → neutral, no change
+
+        Args:
+            msg: The feedback.received message.
+        """
+        # 1. Extract run_id — from metadata first, then payload fallback
+        run_id = get_run_id(msg)
+        if not run_id:
+            run_id = msg.payload.get("run_id") if msg.payload else None
+        if not run_id:
+            logger.warning(
+                "Received feedback.received without run_id, ignoring"
+            )
+            return
+
+        # 2. Read outcome and score_delta from payload
+        payload = msg.payload or {}
+        outcome = payload.get("outcome", "unknown")
+        score_delta = payload.get("score_delta", 0.0)
+
+        # 3. outcome == "unknown" → journal log, return
+        if outcome == "unknown":
+            logger.debug(
+                "feedback.received for run_id=%s: outcome=unknown, no weight update",
+                run_id,
+            )
+            # Load journal for logging if available
+            journal = RunJournal(run_id, self._run_store)
+            if journal.exists():
+                journal.log_event(
+                    phase="strategy",
+                    event_type="feedback_learning_skipped",
+                    summary="Feedback outcome=unknown, no weight update",
+                    data={"run_id": run_id, "outcome": outcome, "score_delta": score_delta},
+                )
+            return
+
+        try:
+            # 4. Load RunJournal — if not exists: debug, return
+            journal = RunJournal(run_id, self._run_store)
+            if not journal.exists():
+                logger.debug(
+                    "Run journal for run_id=%s does not exist, ignoring feedback",
+                    run_id,
+                )
+                return
+
+            # 5. Load latest strategy_decision artifact — if not found: info, return
+            strategy_decision = self._load_latest_strategy_decision(journal)
+            if not strategy_decision:
+                logger.info(
+                    "No strategy decision found for run_id=%s, skipping feedback learning",
+                    run_id,
+                )
+                return
+
+            # 6. Load latest evaluation artifact — if not found: info, return
+            evaluation_artifact = self._load_latest_evaluation(journal)
+            if not evaluation_artifact:
+                logger.info(
+                    "No evaluation artifact found for run_id=%s, skipping feedback learning",
+                    run_id,
+                )
+                return
+
+            # 7. Extract failure_class — if None: debug, return
+            failure_class = evaluation_artifact.get("failure_class")
+            if not failure_class:
+                logger.debug(
+                    "No failure_class in evaluation for run_id=%s, skipping feedback learning",
+                    run_id,
+                )
+                return
+
+            selected_playbook = strategy_decision.get("selected_playbook")
+            if not selected_playbook:
+                logger.info(
+                    "No selected_playbook in strategy decision for run_id=%s, "
+                    "skipping feedback learning",
+                    run_id,
+                )
+                return
+
+            # 8. Calculate weight_change from outcome + score_delta using feedback thresholds
+            if outcome == "good" and score_delta >= FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD:
+                weight_change = 1
+            elif outcome == "bad" and score_delta <= FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD:
+                weight_change = -1
+            else:
+                weight_change = 0
+
+            if weight_change == 0:
+                logger.debug(
+                    "feedback.received for run_id=%s: score_delta=%.2f is neutral, "
+                    "no weight update",
+                    run_id, score_delta,
+                )
+                journal.log_event(
+                    phase="strategy",
+                    event_type="feedback_learning_skipped",
+                    summary=f"score_delta {score_delta:.2f} is neutral, no weight update",
+                    data={
+                        "run_id": run_id,
+                        "outcome": outcome,
+                        "score_delta": score_delta,
+                        "failure_class": failure_class,
+                        "selected_playbook": selected_playbook,
+                        "reason": "neutral_score_delta",
+                    },
+                )
+                return
+
+            # 9. Update weight in strategy store
+            old_weight = self._strategy_store.get_failure_class_weight(
+                failure_class, selected_playbook
+            )
+            new_weight = self._clamp_weight(old_weight + weight_change)
+
+            self._strategy_store.set_failure_class_weight(
+                failure_class, selected_playbook, new_weight
+            )
+
+            logger.info(
+                "Feedback learning: run_id=%s, failure_class=%s, playbook=%s, "
+                "outcome=%s, score_delta=%.2f, weight %d -> %d",
+                run_id, failure_class, selected_playbook,
+                outcome, score_delta, old_weight, new_weight,
+            )
+
+            # 10. Log learning event to journal
+            journal.log_event(
+                phase="strategy",
+                event_type="feedback_learning_applied",
+                summary=f"Feedback updated {selected_playbook} weight for {failure_class}: "
+                        f"{old_weight} -> {new_weight}",
+                data={
+                    "run_id": run_id,
+                    "outcome": outcome,
+                    "score_delta": score_delta,
+                    "failure_class": failure_class,
+                    "selected_playbook": selected_playbook,
+                    "old_weight": old_weight,
+                    "new_weight": new_weight,
+                    "weight_change": weight_change,
+                },
+            )
+
+            # 11. Save feedback learning artifact for analytics
+            journal.save_artifact(
+                phase="strategy",
+                artifact_type="feedback_learning_update",
+                payload={
+                    "run_id": run_id,
+                    "outcome": outcome,
+                    "score_delta": score_delta,
+                    "failure_class": failure_class,
+                    "selected_playbook": selected_playbook,
+                    "old_weight": old_weight,
+                    "new_weight": new_weight,
+                    "weight_change": weight_change,
+                },
+            )
+
+        except Exception as exc:
+            # Never silent pass — log to journal
+            error_msg = str(exc)[:500]
+            logger.error(
+                "Feedback learning failed for run_id=%s: %s",
+                run_id, error_msg, exc_info=True,
+            )
+
+            try:
+                journal = RunJournal(run_id, self._run_store)
+                if journal.exists():
+                    journal.log_event(
+                        phase="strategy",
+                        event_type="feedback_learning_failed",
+                        summary=f"Feedback learning failed: {type(exc).__name__}",
+                        data={
+                            "run_id": run_id,
+                            "error": error_msg,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
             except Exception:
                 # If even logging fails, at least we have the logger output
                 pass
