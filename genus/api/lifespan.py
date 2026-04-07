@@ -15,7 +15,6 @@ Design:
 """
 
 import asyncio
-import inspect
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List
@@ -54,7 +53,17 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning("run.started received without run_id — ignored")
             return
         logger.info("Starting DevLoop for run_id=%s goal=%r", run_id, goal)
-        asyncio.create_task(_run_devloop(bus, ks, run_id, goal))
+        task = asyncio.create_task(_run_devloop(bus, ks, run_id, goal))
+
+        def _on_devloop_done(t: "asyncio.Task[None]") -> None:
+            if not t.cancelled() and t.exception():
+                logger.error(
+                    "DevLoop task for run_id=%s raised unexpected exception",
+                    run_id,
+                    exc_info=t.exception(),
+                )
+
+        task.add_done_callback(_on_devloop_done)
 
     bus.subscribe(RUN_STARTED, "lifespan:run.started", _on_run_started)
 
@@ -66,7 +75,7 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     for agent in agents:
         try:
             stop_result = agent.stop()
-            if inspect.isawaitable(stop_result):
+            if asyncio.iscoroutine(stop_result):
                 await stop_result
         except Exception as exc:
             logger.warning("Agent stop failed: %s", exc)
