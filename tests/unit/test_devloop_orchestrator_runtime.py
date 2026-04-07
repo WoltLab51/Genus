@@ -11,6 +11,8 @@ Validates that the orchestrator:
 
 import pytest
 import asyncio
+import tempfile
+from pathlib import Path
 
 from genus.communication.message_bus import MessageBus, Message
 from genus.dev import topics
@@ -24,6 +26,16 @@ from genus.dev.events import (
     dev_fix_completed_message,
 )
 from genus.dev.runtime import DevResponseFailedError, DevResponseTimeoutError
+from genus.memory.run_journal import RunJournal
+from genus.memory.store_jsonl import JsonlRunStore
+
+
+def _make_test_journal(run_id: str = "2026-04-06T10-00-00Z__orchtest__xyz789") -> RunJournal:
+    tmpdir = tempfile.mkdtemp()
+    store = JsonlRunStore(base_dir=Path(tmpdir))
+    journal = RunJournal(run_id=run_id, store=store)
+    journal.initialize(goal="test goal")
+    return journal
 
 
 @pytest.fixture
@@ -41,7 +53,7 @@ def run_id():
 @pytest.fixture
 def orchestrator(bus):
     """Create an orchestrator with short timeout for tests."""
-    return DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0)
+    return DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0, run_journal=_make_test_journal())
 
 
 class FakeResponder:
@@ -447,7 +459,7 @@ class TestOrchestratorFailureHandling:
     async def test_handles_timeout(self, bus, run_id):
         """Orchestrator handles timeout when no response arrives."""
         # Create orchestrator with very short timeout
-        orchestrator = DevLoopOrchestrator(bus, timeout_s=0.1)
+        orchestrator = DevLoopOrchestrator(bus, timeout_s=0.1, run_journal=_make_test_journal(run_id))
 
         # Don't set up any responder - let it timeout
         with pytest.raises(DevResponseTimeoutError) as exc_info:
@@ -468,7 +480,7 @@ class TestOrchestratorFailureHandling:
         bus.subscribe(topics.DEV_LOOP_FAILED, "capture", capture_failed)
 
         # Create orchestrator with very short timeout to trigger error
-        short_orchestrator = DevLoopOrchestrator(bus, timeout_s=0.1)
+        short_orchestrator = DevLoopOrchestrator(bus, timeout_s=0.1, run_journal=_make_test_journal(run_id))
 
         with pytest.raises(DevResponseTimeoutError):
             await short_orchestrator.run(run_id, "test goal")
@@ -566,7 +578,7 @@ class TestOrchestratorIterativeFixLoop:
     async def test_max_iterations_reached(self, bus, run_id):
         """When max iterations is reached without passing tests, loop fails."""
         # Create orchestrator with max_iterations=2
-        orchestrator = DevLoopOrchestrator(bus, timeout_s=2.0, max_iterations=2)
+        orchestrator = DevLoopOrchestrator(bus, timeout_s=2.0, max_iterations=2, run_journal=_make_test_journal(run_id))
 
         fake_responder = FakeResponder(bus, run_id)
         fake_responder.on_plan_requested({"steps": [], "acceptance_criteria": [], "risks": []})

@@ -105,6 +105,7 @@ async def cmd_run(
             sender_id="cli-orchestrator",
             timeout_s=300.0,  # 5 minute timeout
             max_iterations=3,
+            run_journal=journal,
         )
 
         try:

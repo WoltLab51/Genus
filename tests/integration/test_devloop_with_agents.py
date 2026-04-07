@@ -11,6 +11,8 @@ These tests verify:
 """
 
 import pytest
+import tempfile
+from pathlib import Path
 from typing import List
 
 from genus.communication.message_bus import MessageBus, Message
@@ -23,6 +25,16 @@ from genus.dev.agents import (
     ReviewerAgent,
 )
 from genus.dev.runtime import DevResponseFailedError
+from genus.memory.run_journal import RunJournal
+from genus.memory.store_jsonl import JsonlRunStore
+
+
+def _make_test_journal(run_id: str) -> RunJournal:
+    tmpdir = tempfile.mkdtemp()
+    store = JsonlRunStore(base_dir=Path(tmpdir))
+    journal = RunJournal(run_id=run_id, store=store)
+    journal.initialize(goal="test goal")
+    return journal
 
 
 @pytest.fixture
@@ -84,7 +96,7 @@ async def test_happy_path_all_agents_succeed(bus, run_id):
     )
 
     # Setup orchestrator
-    orchestrator = DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0)
+    orchestrator = DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0, run_journal=_make_test_journal(run_id))
 
     try:
         # Start all components
@@ -138,7 +150,7 @@ async def test_ask_stop_path_high_severity(bus, run_id):
     )
 
     # Setup orchestrator
-    orchestrator = DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0)
+    orchestrator = DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0, run_journal=_make_test_journal(run_id))
 
     try:
         # Start all components
@@ -194,7 +206,7 @@ async def test_failure_path_implement_fails(bus, run_id):
     )
 
     # Setup orchestrator
-    orchestrator = DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0)
+    orchestrator = DevLoopOrchestrator(bus, sender_id="TestOrchestrator", timeout_s=2.0, run_journal=_make_test_journal(run_id))
 
     try:
         # Start all components
