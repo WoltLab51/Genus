@@ -447,13 +447,15 @@ policy = GitHubPolicy(
 
 ### "Kill-switch is disabled"
 
-**Problem**: Sandbox kill-switch is off (safety mechanism).
+**Problem**: Sandbox kill-switch is active (blocking execution).
 
-**Solution**: Re-enable kill-switch:
+**Solution**: Deactivate the kill-switch:
 ```python
 from genus.security.kill_switch import DEFAULT_KILL_SWITCH
-DEFAULT_KILL_SWITCH.enable()
+DEFAULT_KILL_SWITCH.deactivate()
 ```
+
+> **Note**: `DEFAULT_KILL_SWITCH.enable()` is deprecated. Use `deactivate()` instead.
 
 ## Support
 

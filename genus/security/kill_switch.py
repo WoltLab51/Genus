@@ -13,6 +13,7 @@ Design notes:
 - Deactivating restores normal publish behaviour immediately.
 """
 
+import warnings
 from typing import Optional, Set
 
 
@@ -42,13 +43,20 @@ class KillSwitch:
 
         # Activate – blocks all publish() calls except the allowlist
         ks.activate(reason="emergency stop", actor="ops-team")
-
         ks.is_active()   # True
 
         # Restore normal operation
         ks.deactivate(actor="ops-team")
-
         ks.is_active()   # False
+
+        # Assert that execution is allowed (raises KillSwitchActiveError if not)
+        ks.assert_not_active()
+
+    Deprecated methods (use the above instead):
+        enable()         → deactivate()
+        disable()        → activate(reason=...)
+        assert_enabled() → assert_not_active()
+        enabled          → not is_active()
 
     Allowlist topics::
 
@@ -100,27 +108,73 @@ class KillSwitch:
     def enable(self) -> None:
         """Enable the kill-switch (same as deactivate for backwards compatibility).
 
+        .. deprecated::
+            Use :meth:`deactivate` instead.
+
+        'enable' is ambiguous — it could mean 'enable the kill-switch'
+        (= activate/block) or 'enable execution' (= deactivate/allow).
+        Use :meth:`deactivate` for clarity.
+
         When enabled, sandbox execution is allowed.
         This is the inverse of activate() - when the kill-switch is NOT active,
         execution is enabled.
         """
+        warnings.warn(
+            "KillSwitch.enable() is deprecated and will be removed in a future version. "
+            "Use KillSwitch.deactivate() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.deactivate()
 
     def disable(self) -> None:
         """Disable the kill-switch (same as activate for backwards compatibility).
 
+        .. deprecated::
+            Use :meth:`activate` with an explicit reason instead.
+
         When disabled, sandbox execution is blocked.
         """
+        warnings.warn(
+            "KillSwitch.disable() is deprecated and will be removed in a future version. "
+            "Use KillSwitch.activate(reason='...') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.activate(reason="Sandbox execution disabled")
 
     def assert_enabled(self) -> None:
         """Assert that sandbox execution is enabled.
 
+        .. deprecated::
+            Use :meth:`assert_not_active` instead.
+
         Raises:
             RuntimeError: If sandbox execution is disabled (kill-switch is active).
         """
+        warnings.warn(
+            "KillSwitch.assert_enabled() is deprecated and will be removed in a future version. "
+            "Use KillSwitch.assert_not_active() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self._active:
             raise RuntimeError("Sandbox execution disabled")
+
+    def assert_not_active(self) -> None:
+        """Assert that the kill-switch is NOT active (i.e. execution is allowed).
+
+        Raises:
+            KillSwitchActiveError: If the kill-switch is active.
+
+        Prefer this over :meth:`assert_enabled` — the name clearly states
+        what is being asserted.
+        """
+        if self._active:
+            raise KillSwitchActiveError(
+                topic="<sandbox>",
+                reason=self._reason or "Kill-switch is active",
+            )
 
     # ------------------------------------------------------------------
     # Query
@@ -147,7 +201,17 @@ class KillSwitch:
 
     @property
     def enabled(self) -> bool:
-        """Return True when sandbox execution is enabled (kill-switch is NOT active)."""
+        """Return True when sandbox execution is enabled (kill-switch is NOT active).
+
+        .. deprecated::
+            Use ``not kill_switch.is_active()`` instead.
+        """
+        warnings.warn(
+            "KillSwitch.enabled is deprecated and will be removed in a future version. "
+            "Use 'not kill_switch.is_active()' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return not self._active
 
     # ------------------------------------------------------------------
