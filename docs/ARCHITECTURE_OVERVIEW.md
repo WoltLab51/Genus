@@ -85,16 +85,17 @@ GENUS folgt dem Clean-Architecture-Prinzip mit einer **strikten Dependency-Richt
 | `acl_presets.py` | `default_pipeline_policy()`, `default_orchestrator_toolexecutor_policy()` |
 | `sanitization/` | `SanitizationPolicy`, `sanitize_payload()` |
 
-### `genus/api/` – REST-API (FastAPI) — Phase 1 ✅
+### `genus/api/` – REST-API (FastAPI) — Phase 1 + 2 ✅
 | Datei | Verantwortung |
 |---|---|
 | `app.py` | `create_app()`: FastAPI App-Factory, Lifespan-Kontext, Middleware-Wiring |
 | `middleware.py` | `ApiKeyMiddleware`: Bearer-Token-Prüfung (`Authorization: Bearer <key>`), exempt: `/health` |
 | `errors.py` | `ErrorHandlingMiddleware`: strukturierte JSON-Fehlerantworten, kein Stack-Trace |
-| `deps.py` | FastAPI Dependencies: `get_message_bus()`, `verify_operator()` |
+| `deps.py` | FastAPI Dependencies: `get_message_bus()`, `verify_operator()`, `verify_admin()`, `get_kill_switch()` |
 | `routers/health.py` | `GET /health` — Liveness-Check, kein Auth |
 | `routers/runs.py` | `POST /runs` — Run starten via `run.started` auf MessageBus |
 | `routers/outcome.py` | `POST /outcome` — Feedback via `outcome.recorded` auf MessageBus |
+| `routers/kill_switch.py` | `POST /kill-switch/activate`, `POST /kill-switch/deactivate` (Admin), `GET /kill-switch/status` (Operator) |
 
 ---
 
@@ -192,7 +193,8 @@ run_id = require_run_id(message)  # Wirft Exception, wenn nicht gesetzt
 | **Orchestrator** | `genus/orchestration/` | core, communication, agents | Koordiniert Multi-Agent-Workflows |
 | **Builder** | `genus/builder/` | core, agents | Erstellt Agenten aus Konfiguration |
 | **Sandbox** | `genus/sandbox/` | core | Isolierte Tool-Ausführung |
-| **DataSanitizerAgent** | `genus/agents/` | core, communication, memory | Nächster geplanter Agent (P1-C) |
+| **DataSanitizerAgent** | `genus/agents/` | core, communication, memory | ✅ Implementiert (`genus/agents/data_sanitizer_agent.py`) |
 | **Permissions/Rollen** | `genus/security/` | core, api | ✅ Rollenmodell implementiert: Role.READER/OPERATOR/ADMIN |
 | **API-Layer Phase 1** | `genus/api/` | core, communication | ✅ /health, /runs, /outcome |
-| **API Phase 2** | `genus/api/routers/` | security | /kill-switch (Admin only) |
+| **Kill-Switch** | `genus/security/` | core, communication | ✅ Implementiert (`genus/security/kill_switch.py`) |
+| **API Phase 2 (/kill-switch)** | `genus/api/routers/` | security | ✅ Implementiert (`genus/api/routers/kill_switch.py`) |
