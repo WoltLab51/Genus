@@ -32,7 +32,8 @@ class TestSandboxRunnerKillSwitch:
             workspace.ensure_dirs()
 
             kill_switch = KillSwitch()
-            kill_switch.disable()
+            with pytest.warns(DeprecationWarning, match="disable\\(\\) is deprecated"):
+                kill_switch.disable()
 
             policy = SandboxPolicy()
             runner = SandboxRunner(
@@ -43,8 +44,9 @@ class TestSandboxRunnerKillSwitch:
 
             cmd = SandboxCommand(argv=["python", "-m", "pytest"], cwd=".")
 
-            with pytest.raises(RuntimeError) as exc_info:
-                await runner.run(cmd)
+            with pytest.warns(DeprecationWarning, match="assert_enabled\\(\\) is deprecated"):
+                with pytest.raises(RuntimeError) as exc_info:
+                    await runner.run(cmd)
             assert "Sandbox execution disabled" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -55,7 +57,8 @@ class TestSandboxRunnerKillSwitch:
             workspace.ensure_dirs()
 
             kill_switch = KillSwitch()
-            kill_switch.enable()
+            with pytest.warns(DeprecationWarning, match="enable\\(\\) is deprecated"):
+                kill_switch.enable()
 
             policy = SandboxPolicy()
             runner = SandboxRunner(
@@ -66,8 +69,9 @@ class TestSandboxRunnerKillSwitch:
 
             cmd = SandboxCommand(argv=["python", "--version"], cwd=".")
 
-            # Should not raise
-            result = await runner.run(cmd, timeout_s=5)
+            # Should not raise; runner internally calls assert_enabled() (deprecated)
+            with pytest.warns(DeprecationWarning, match="assert_enabled\\(\\) is deprecated"):
+                result = await runner.run(cmd, timeout_s=5)
             assert result is not None
 
 
