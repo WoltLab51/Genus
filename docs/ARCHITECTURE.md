@@ -1,235 +1,109 @@
-# Architecture Documentation
+# GENUS-2.0 — Verfassung
 
-## Overview
+> Stand: 2026-04-07 | Anti-Drift-Dokument | Verbindlich für alle Agents und Menschen
 
-GENUS (Generative ENvironment for Unified Systems) is designed with clean architecture principles to ensure modularity, testability, and maintainability.
+---
 
-## Core Principles
+## 1. Orchestratoren — Rollen und Grenzen
 
-### 1. Separation of Concerns
+GENUS hat zwei Orchestratoren mit klar getrennten Verantwortlichkeiten:
 
-Each module has a single, well-defined responsibility:
+| Orchestrator | Modul | Verantwortung |
+|---|---|---|
+| `DevLoopOrchestrator` | `genus/dev/` | **Einziges System das Tasks plant und ausführt.** Koordiniert Plan → Implement → Test → Fix → Review. |
+| `Orchestrator` (Tool-Ebene) | `genus/orchestration/` | Führt einzelne Tool-Calls aus (Step-Ebene). Untergeordnet dem DevLoop. |
 
-- **Core Module**: Defines abstract interfaces and base behaviors for agents
-- **Communication Module**: Handles all message passing between agents
-- **Config Module**: Manages system-wide configuration
-- **Utils Module**: Provides shared utilities (logging, etc.)
-- **Agents Module**: Contains concrete agent implementations
-
-### 2. Dependency Direction
-
-Dependencies always point inward toward abstractions:
+**Harte Regeln:**
 
 ```
-Agents → Core (abstractions)
-Agents → Communication (interface)
-Communication → (no dependencies on agents)
-Core → (no dependencies on anything)
+DevLoopOrchestrator  → darf ToolOrchestrator nutzen
+ToolOrchestrator     → darf DevLoopOrchestrator NICHT kennen
+Strategy             → darf Tools NICHT direkt ausführen
+Agents               → dürfen sich NICHT gegenseitig direkt aufrufen (nur via MessageBus)
 ```
 
-This ensures:
-- Core logic is independent of implementation details
-- Modules can be tested in isolation
-- Easy to swap implementations without affecting other modules
+---
 
-### 3. Interface Segregation
+## 2. Journal — Single Source of Truth
 
-Agent interface is minimal and focused:
+> **If it is not in the RunJournal, it does not exist.**
 
-```python
-class Agent(ABC):
-    async def initialize() -> None
-    async def start() -> None
-    async def stop() -> None
-    async def process_message(message) -> None
-```
+- Jeder Run **muss** ein `RunJournal` haben. Kein optionales Journal, keine Silent Runs.
+- Jede Phase schreibt ins Journal: `log_event` + `save_artifact` wo sinnvoll.
+- Journal-Fehler werden geloggt (`logger.warning`), aber **unterbrechen nie den Run**.
+- Das Journal ist SSOT — nicht der MessageBus, nicht der EventStore.
 
-Agents only need to implement what they need, nothing more.
+---
 
-## Module Details
+## 3. Feedback — Signal, kein Befehl
 
-### Core Module
-
-**Purpose**: Define agent abstractions and lifecycle management
-
-**Key Components**:
-- `Agent`: Abstract base class defining agent interface
-- `AgentState`: Enumeration of possible agent states
-- `Lifecycle`: Manages multiple agent lifecycles
-
-**Design Decisions**:
-- Abstract base class enforces contract without implementation
-- State machine pattern for clear state transitions
-- Lifecycle manager follows Single Responsibility Principle
-
-### Communication Module
-
-**Purpose**: Enable decoupled agent communication
-
-**Key Components**:
-- `MessageBus`: Publish-subscribe message broker
-- `Message`: Data structure for messages
-- `MessagePriority`: Priority levels for message handling
-
-**Design Decisions**:
-- Pub-sub pattern for loose coupling
-- Async message delivery for non-blocking communication
-- Topic-based routing with wildcard support
-- Message history for debugging and monitoring
-
-**Communication Flow**:
-```
-Agent A → publish(Message) → MessageBus → deliver → Agent B
-                                        ↓
-                                     Agent C
-```
-
-### Config Module
-
-**Purpose**: Centralize configuration management
-
-**Key Components**:
-- `Config`: Singleton configuration manager
-
-**Design Decisions**:
-- Singleton pattern ensures single source of truth
-- Layered configuration: defaults → file → environment
-- Dot notation for hierarchical access
-- Environment-specific overrides
-
-### Agents Module
-
-**Purpose**: Provide example implementations
-
-**Key Components**:
-- `WorkerAgent`: Task processor agent
-- `CoordinatorAgent`: Task distributor agent
-
-**Design Decisions**:
-- Demonstrates proper use of base classes
-- Shows message bus integration
-- Implements complete lifecycle
-
-## Communication Patterns
-
-### 1. Request-Response Pattern
-
-```python
-# Coordinator sends task
-coordinator.publish(Message(topic="tasks.work", payload=task))
-
-# Worker processes and responds
-worker.publish(Message(topic="tasks.results", payload=result))
-```
-
-### 2. Broadcast Pattern
-
-```python
-# One message to multiple subscribers
-bus.subscribe("system.shutdown", worker1.id, worker1.process_message)
-bus.subscribe("system.shutdown", worker2.id, worker2.process_message)
-bus.publish(Message(topic="system.shutdown"))
-```
-
-### 3. Topic Filtering Pattern
-
-```python
-# Subscribe to specific topics
-bus.subscribe("tasks.work", worker.id, handler)
-
-# Or use wildcards
-bus.subscribe("tasks.*", monitor.id, monitor_handler)
-```
-
-## State Management
-
-### Agent States
+> **Feedback is a signal, not a command. It must NEVER directly change strategy.**
 
 ```
-INITIALIZED → RUNNING → PAUSED → RUNNING
-                ↓
-            STOPPED / ERROR
+outcome.recorded  →  FeedbackAgent
+                          ↓ journal.log_event + save_artifact  (best-effort)
+                          ↓ feedback.received                  (immer, auch ohne Journal)
+                               ↓
+                          [zukünftig: LearningAgent interpretiert]
 ```
 
-**State Transitions**:
-- `initialize()`: → INITIALIZED
-- `start()`: INITIALIZED → RUNNING
-- `stop()`: * → STOPPED
+- `feedback.received` wird **immer** publiziert, solange `run_id` und Payload valide sind.
+- Routing-Entscheidungen liegen beim **Orchestrator**, nicht beim FeedbackAgent.
+- `FeedbackAgent` trifft keine Policy-Entscheidungen.
 
-## Extension Points
+---
 
-### Adding New Agent Types
+## 4. Decision Flow — Herzschlag von GENUS
 
-1. Subclass `Agent`
-2. Implement required methods
-3. Add agent-specific logic
-4. Register with lifecycle manager
-
-Example:
-```python
-class MonitorAgent(Agent):
-    async def initialize(self):
-        # Subscribe to all topics for monitoring
-        self._bus.subscribe("*", self.id, self.process_message)
-        self._transition_state(AgentState.INITIALIZED)
-
-    async def process_message(self, message):
-        # Log all messages
-        self._logger.info(f"Monitored: {message.topic}")
+```
+Strategy → DevLoop → Execution → Evaluation → Learning → Strategy
 ```
 
-### Adding New Communication Patterns
+Dieser Kreislauf ist **geschlossen**. Kein Agent bricht ihn auf. Kein Agent überspringt eine Stufe.
 
-The message bus can be extended with:
-- Priority queues
-- Message persistence
-- Replay capabilities
-- Dead letter queues
+- **Strategy** wählt Playbook
+- **DevLoop** führt aus
+- **Execution** (Builder, Tests) liefert Ergebnis
+- **Evaluation** bewertet (Score, FailureClass)
+- **Learning** liest Evaluation + Feedback → passt Strategy an
 
-## Testing Strategy
+---
 
-### Unit Tests
-- Test each module in isolation
-- Mock dependencies
-- Test edge cases and error conditions
+## 5. Dependency-Regeln
 
-### Integration Tests
-- Test agent communication
-- Test lifecycle management
-- Test multi-agent scenarios
-
-### Example Test Structure
-```python
-def test_agent_communication():
-    bus = MessageBus()
-    agent1 = WorkerAgent(message_bus=bus)
-    agent2 = WorkerAgent(message_bus=bus)
-
-    # Test communication between agents
-    # ...
+```
+genus/core/          → keine Abhängigkeiten
+genus/communication/ → nur genus/core/
+genus/memory/        → genus/core/, genus/communication/
+genus/feedback/      → genus/core/, genus/communication/, genus/memory/
+genus/dev/           → genus/core/, genus/communication/, genus/memory/, genus/strategy/
+genus/strategy/      → genus/core/, genus/memory/
+genus/agents/        → genus/core/, genus/communication/, genus/memory/
 ```
 
-## Performance Considerations
+**Regel:** Abhängigkeiten zeigen **immer nach innen**. Nie nach außen. Nie zirkulär.
 
-### Scalability
-- Async I/O for non-blocking operations
-- Message queues prevent overwhelming agents
-- Independent agent execution
+---
 
-### Resource Management
-- Graceful shutdown ensures cleanup
-- Queue size limits prevent memory issues
-- Message history limited to prevent unbounded growth
+## 6. Unveränderliche Prinzipien
 
-## Future Enhancements
+Diese Prinzipien gelten immer, für jeden Agent, jeden PR, jeden Refactor:
 
-### Short-term
-- Add metrics collection
-- Implement message persistence
-- Add health checks
+1. **Journal first** — kein Run ohne RunJournal
+2. **Signal vor Entscheidung** — Feedback wird erfasst, nicht direkt umgesetzt
+3. **Bus-only Kommunikation** — Agents sprechen via MessageBus, nie direkt
+4. **Fail-safe Logging** — Infrastruktur-Fehler (Journal, Bus) crashen nie den Run
+5. **run_id Pflicht** — jede Nachricht trägt eine run_id in metadata
+6. **Orchestrator entscheidet** — kein Agent macht Routing-Entscheidungen für andere
 
-### Long-term
-- Distributed message bus
-- Agent clustering
-- Web-based monitoring UI
-- Service mesh integration
+---
+
+## 7. Weiterführende Dokumente
+
+| Dokument | Inhalt |
+|---|---|
+| `docs/ARCHITECTURE_OVERVIEW.md` | Technische Modulgrenzen, Agent-Lifecycle, Dependency-Details |
+| `docs/TOPICS.md` | Topic-Registry, Payload-Contracts, Recorder-Whitelist |
+| `docs/DEV_LOOP.md` | DevLoop-Phasen, Phase-IDs, Timeout-Handling |
+| `docs/POLICIES.md` | Decision-Semantik, Quality-Thresholds |
+| `docs/SECURITY.md` | Sicherheitsposture, Threat Model |
