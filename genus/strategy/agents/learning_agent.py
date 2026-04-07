@@ -254,9 +254,11 @@ class StrategyLearningAgent(DevAgentBase):
                         "error_type": type(exc).__name__,
                     },
                 )
-            except Exception:
-                # If even logging fails, at least we have the logger output
-                pass
+            except Exception as _journal_exc:
+                logger.warning(
+                    "StrategyLearningAgent: secondary journal write failed for run %s: %s",
+                    run_id, _journal_exc,
+                )
 
     async def _handle_feedback_received(self, msg: Message) -> None:
         """Handle feedback.received — apply human outcome signal to strategy weights.
@@ -449,9 +451,11 @@ class StrategyLearningAgent(DevAgentBase):
                             "error_type": type(exc).__name__,
                         },
                     )
-            except Exception:
-                # If even logging fails, at least we have the logger output
-                pass
+            except Exception as _journal_exc:
+                logger.warning(
+                    "StrategyLearningAgent: secondary journal write failed for feedback run %s: %s",
+                    run_id, _journal_exc,
+                )
 
     def _load_latest_evaluation(self, journal: RunJournal) -> Optional[Dict[str, Any]]:
         """Load the latest evaluation artifact from the journal.

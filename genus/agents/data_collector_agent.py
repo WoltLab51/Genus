@@ -1,4 +1,8 @@
+import logging
+
 from genus.core.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class DataCollectorAgent(Agent):
@@ -7,7 +11,7 @@ class DataCollectorAgent(Agent):
             "temperature": 25.0
         }
 
-        print(f"[Collector] Collected data: {data}")
+        logger.debug("[Collector] Collected data: %s", data)
         await self.message_bus.publish(
             topic="data.collected",
             data=data

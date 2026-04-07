@@ -11,11 +11,14 @@ Security:
 """
 
 import json
+import logging
 import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional
 
 from genus.github.config import GitHubConfig
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubAPIError(Exception):
@@ -141,8 +144,10 @@ class GitHubClient:
                 error_data = json.loads(error_body)
                 if "message" in error_data:
                     error_msg += " - {}".format(error_data["message"])
-            except Exception:
-                pass
+            except (json.JSONDecodeError, ValueError) as _exc:
+                logger.debug(
+                    "GitHubClient: could not parse error response body: %s", _exc
+                )
 
             raise GitHubAPIError(error_msg, status_code=e.code, response_body=error_body)
 

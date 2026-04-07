@@ -98,27 +98,29 @@ class RedisPubSubTransport:
             self._listener_task.cancel()
             try:
                 await self._listener_task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as _exc:
+                logger.warning("RedisPubSubTransport: listener task raised: %s", _exc)
             self._listener_task = None
 
         if self._pubsub is not None:
             try:
                 await self._pubsub.close()
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.warning("RedisPubSubTransport: close failed: %s", _exc)
 
         if self._subscribe_client is not None:
             try:
                 await self._subscribe_client.aclose()
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.warning("RedisPubSubTransport: close failed: %s", _exc)
 
         if self._publish_client is not None:
             try:
                 await self._publish_client.aclose()
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.warning("RedisPubSubTransport: close failed: %s", _exc)
 
         logger.debug("RedisPubSubTransport closed")
 
@@ -157,8 +159,11 @@ class RedisPubSubTransport:
             if self._pubsub is not None:
                 try:
                     await self._pubsub.unsubscribe(channel)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.warning(
+                        "RedisPubSubTransport: unsubscribe failed for channel %s: %s",
+                        channel, _exc,
+                    )
 
     async def unsubscribe_all(self) -> None:
         """Remove all channel subscriptions."""
@@ -166,8 +171,11 @@ class RedisPubSubTransport:
             if self._pubsub is not None:
                 try:
                     await self._pubsub.unsubscribe(channel)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.warning(
+                        "RedisPubSubTransport: unsubscribe failed for channel %s: %s",
+                        channel, _exc,
+                    )
         self._channel_callbacks.clear()
 
     async def publish(self, channel: str, message: Message) -> None:

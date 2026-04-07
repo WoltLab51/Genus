@@ -153,9 +153,11 @@ class EvaluationAgent(DevAgentBase):
                         "error_type": type(e).__name__,
                     },
                 )
-            except Exception:
-                # If even logging fails, silently continue
-                pass
+            except Exception as _journal_exc:
+                logger.warning(
+                    "EvaluationAgent: secondary journal write failed for run %s: %s",
+                    run_id, _journal_exc,
+                )
 
     def _build_evaluation_input(
         self,
