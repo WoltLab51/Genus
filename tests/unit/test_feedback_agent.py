@@ -277,12 +277,13 @@ class TestFeedbackAgentDropConditions:
         assert events == []
 
     @pytest.mark.asyncio
-    async def test_drops_when_journal_factory_returns_none(self):
+    async def test_signal_flows_when_journal_factory_returns_none(self):
+        """feedback.received is published even when journal_factory returns None."""
         bus = MessageBus()
 
         agent = FeedbackAgent(
             message_bus=bus,
-            journal_factory=lambda rid: None,  # always returns None
+            journal_factory=lambda rid: None,  # journal not available
         )
         await agent.initialize()
         await agent.start()
@@ -292,8 +293,9 @@ class TestFeedbackAgentDropConditions:
 
         await bus.publish(_make_outcome_message())
 
-        # No feedback.received published when journal is unavailable
-        assert received == []
+        # Signal must flow through even without a journal
+        assert len(received) == 1
+        assert received[0].payload["outcome"] == "good"
 
 
 # ===========================================================================
