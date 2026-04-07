@@ -1,6 +1,6 @@
 # GENUS – Architektur-Übersicht
 
-> **Stand:** 2026-04-05 | Sprache: Deutsch
+> **Stand:** 2026-04-07 | Sprache: Deutsch
 
 ---
 
@@ -71,7 +71,8 @@ GENUS folgt dem Clean-Architecture-Prinzip mit einer **strikten Dependency-Richt
 | `QualityAgent` | `analysis.completed`, `data.analyzed` | `quality.scored` | ✅ |
 | `DecisionAgent` | `quality.scored` | `decision.made` | ✅ |
 | `EventRecorderAgent` | Whitelist-Topics | – (schreibt in EventStore) | ✅ |
-| `DataSanitizerAgent` | `data.collected` | `data.sanitized` | 🔜 Geplant |
+| `FeedbackAgent` | `outcome.recorded` | `feedback.received` | ✅ |
+| `DataSanitizerAgent` | `data.collected` | `data.sanitized` | ✅ |
 
 ### `genus/api/` – REST-API (FastAPI) – 🔜 Geplant
 

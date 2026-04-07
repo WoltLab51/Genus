@@ -36,40 +36,45 @@
 | **DecisionAgent** | Entscheidet (accept/retry/replan/escalate/delegate) | ✅ Implementiert | `genus/agents/decision_agent.py` |
 | **EventStore / JSONL** | Append-only Persistenz pro run_id | ✅ Implementiert | `genus/memory/` |
 | **EventRecorderAgent** | Subscribt auf Whitelist-Topics, schreibt in EventStore | ✅ Implementiert | `genus/agents/event_recorder_agent.py` |
+| **FeedbackAgent** | Bridges `outcome.recorded` → RunJournal (log_event + save_artifact) | ✅ Implementiert | `genus/feedback/agent.py` |
 | **QualityScorecard** | Strukturiertes Bewertungsobjekt | ✅ Implementiert | `genus/quality/scorecard.py` |
 | **API-Layer (FastAPI)** | REST-Endpunkte, Auth-Middleware, Fehlerbehandlung | 🔜 Geplant | – (kein `genus/api/`-Modul vorhanden) |
-| **DataSanitizerAgent** | Bereinigt Rohdaten vor Persistenz (Whitelist-Felder) | 🔜 Geplant (P1-C) | – |
+| **DataSanitizerAgent** | Bereinigt `data.collected` → `data.sanitized` (Whitelist, Größenlimits, Evidence) | ✅ Implementiert (P1-C) | `genus/agents/data_sanitizer_agent.py` |
 | **Orchestrator** | Koordiniert Agenten-Workflows, Fehler-Recovery | 🔜 Geplant | – |
 | **Builder** | Erstellt/konfiguriert Agenten dynamisch | 🔜 Geplant | – |
-| **Sandbox** | Isolierte Ausführungsumgebung für unsichere Operationen | 🔜 Geplant | – |
+| **Sandbox** | Isolierte Ausführungsumgebung für unsichere Operationen | ✅ Implementiert | `genus/sandbox/` |
 | **Permissions / Rollen** | Fein-granulare Zugriffskontrolle | 🔜 Geplant | – |
-| **Kill-Switch** | Notfall-Stop für laufende Runs | 🔜 Geplant | – |
+| **Kill-Switch** | Notfall-Stop für laufende Runs | ✅ Implementiert | `genus/security/kill_switch.py` |
 
 ---
 
 ## 3. Ist-Architektur (heute)
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      GENUS Run                          │
-│                                                         │
-│  DataCollector ──► [data.collected] ──► AnalysisAgent  │
-│                                              │          │
-│                                    [analysis.completed] │
-│                                              │          │
-│                                         QualityAgent   │
-│                                              │          │
-│                                     [quality.scored]   │
-│                                              │          │
-│                                        DecisionAgent   │
-│                                              │          │
-│                                      [decision.made]   │
-│                                              │          │
-│  EventRecorderAgent ◄──────────────── MessageBus       │
-│        │                                               │
-│        ▼                                               │
-│  var/events/<run_id>.jsonl                             │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          GENUS Run                              │
+│                                                                 │
+│  DataCollector ──► [data.collected] ──► DataSanitizerAgent     │
+│                                                │                │
+│                                        [data.sanitized]        │
+│                                                │                │
+│                                          AnalysisAgent         │
+│                                                │                │
+│                                      [analysis.completed]      │
+│                                                │                │
+│                                           QualityAgent         │
+│                                                │                │
+│                                       [quality.scored]         │
+│                                                │                │
+│                                          DecisionAgent         │
+│                                                │                │
+│                                        [decision.made]         │
+│                                                │                │
+│  EventRecorderAgent ◄──────────────── MessageBus               │
+│        │                                                        │
+│        ▼                                                        │
+│  var/events/<run_id>.jsonl                                      │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Invarianten (dürfen nie gebrochen werden):**
@@ -150,21 +155,21 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 - **P1-A** (#6) – Decision Policy 2.0: accept/retry/replan/escalate/delegate, QualityScorecard, QualityAgent
 - **P1-B** (#7) – Memory 2.0: JSONL EventStore, EventEnvelope, EventRecorderAgent, Topic-Whitelist
 - **Docs** (#8) – Deutsche Dokumentation: Roter Faden, Topics, Policies, Security, Operations
+- **P1-C** (#PR) – DataSanitizerAgent: `data.collected` → `data.sanitized`, SanitizationPolicy, Whitelist, Evidence
+- **Feedback-Loop** (#42) – FeedbackAgent: `outcome.recorded` → RunJournal + `feedback.received`
+- **Verfassung** (#45) – ARCHITECTURE.md als GENUS-2.0-Steuerdokument (Anti-Drift)
+- **Sandbox-Fix** (#46) – `assert_not_active()` statt deprecated `assert_enabled()`
 
 ### ⏳ Next
 
-- **P1-C** – DataSanitizerAgent (Whitelist-Felder, Redaction) + neues Topic `data.sanitized`
-- `outcome.recorded` Feedback-Loop (**Contract + Persistenz + CLI-Producer ✅ ready**, **Agent-Wrapper / API-Adapter 🔜 geplant**):
-  - ✅ Topic-Contract definiert (`docs/TOPICS.md`)
-  - ✅ `EventRecorderAgent` persistiert `outcome.recorded` (Default-Whitelist + Tests vorhanden)
-  - ✅ CLI-Producer implementiert (`python -m genus.cli.outcome`, siehe `genus/cli/outcome.py` + `docs/OPERATIONS.md`)
-  - 🔜 Offen: Agent-Wrapper (`outcome.submit` → `outcome.recorded`) + API-Endpoint-Adapter + Calibration/Policy-Nutzung
-- Permissions/Rollen/Kill-Switch (P2)
-- Orchestrator / Builder / Sandbox (P3)
+- Permissions/Rollen (P2): Rollen Operator / Reader / Admin
+- API-Layer FastAPI (P2/P3): REST-Endpunkte, Auth-Middleware
+- Orchestrator / Builder vollständig (P3)
+- `outcome.recorded` Agent-Wrapper + API-Adapter (Calibration/Policy-Nutzung)
 
 ### 🔒 Security-Gates
 
-- `data.collected` **nicht persistieren** – erst wenn `DataSanitizerAgent` (P1-C) existiert und `data.sanitized` erzeugt
+- `data.collected` **nicht persistieren** – `DataSanitizerAgent` (P1-C) erzeugt `data.sanitized` ✅ Gate erfüllt
 - Recorder ist **Whitelist-only** – neue Topics müssen explizit freigeschaltet werden
 - `run_id` ist **Pflichtfeld** in jeder Nachricht – kein Silent Drop
 - Ein Meilenstein gilt erst als ✅ Done, wenn Tests + Dokumentation + Topic-Registry aktualisiert sind
@@ -201,7 +206,7 @@ Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.js
 | **Decision-Semantik** | Mögliche Entscheidungen des `DecisionAgent`: `accept` (Qualität ausreichend), `retry` (Qualität knapp unter Schwelle, Wiederholung sinnvoll), `replan` (Qualität zu niedrig, neuer Plan nötig), `escalate` (kritischer Fall, manuelles Eingreifen), `delegate` (an anderen Agenten übergeben). |
 | **Critical Gate** | Regel: Wenn `risk=high` oder `critical=True` im Payload und keine expliziten `requirements` definiert sind, erzwingt `DecisionAgent` die Entscheidung `escalate`. Verhindert automatische Akzeptanz bei risikobehafteten Fällen. |
 | **requirements / min_quality** | Konfigurierbare Qualitätsschwelle (Standard: `0.8`). `DecisionAgent` vergleicht `quality_score >= min_quality` für die `accept`-Entscheidung. Kann per Payload oder Konfiguration überschrieben werden. |
-| **Sanitizer (geplant)** | `DataSanitizerAgent` (P1-C): Empfängt `data.collected`, entfernt PII/Secrets per Whitelist-Felder und Regex-Redaction, publiziert bereinigtes `data.sanitized`. Erst danach darf `data.sanitized` in den EventStore aufgenommen werden. |
+| **DataSanitizerAgent** | Subscribt auf `data.collected`, bereinigt via `SanitizationPolicy` (Whitelist, Größenlimits, kein Silent Drop), publiziert `data.sanitized` mit Evidence-Record. Implementiert in `genus/agents/data_sanitizer_agent.py`. |
 
 ---
 

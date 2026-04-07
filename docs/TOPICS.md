@@ -1,6 +1,6 @@
 # GENUS – Topic-Registry
 
-> **Stand:** 2026-04-05 | Sprache: Deutsch
+> **Stand:** 2026-04-07 | Sprache: Deutsch
 
 ---
 
@@ -14,7 +14,7 @@ Alle Topics, die im GENUS-MessageBus verwendet werden, sind hier dokumentiert. J
 | `analysis.completed` | `AnalysisAgent` | `QualityAgent` | `classification`, `confidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `quality.scored` | `QualityAgent` | `DecisionAgent` | `quality_score`, `dimensions`, `evidence` | ✅ Ja | ✅ Ja (Whitelist) |
 | `decision.made` | `DecisionAgent` | Downstream / API / Monitoring | `decision`, `reason`, `quality_score`, `min_quality`, `attempt`, `max_retries`, `critical` | ✅ Ja | ✅ Ja (Whitelist) |
-| `outcome.recorded` | `OutcomeCLI` / Operator | `DecisionAgent` (Feedback-Loop, geplant) | `outcome`, `score_delta`, `source` | ✅ Ja | ✅ Ja (Default-Whitelist) |
+| `outcome.recorded` | `OutcomeCLI` / Operator | `FeedbackAgent` (→ RunJournal), `EventRecorderAgent` (→ EventStore) | `outcome`, `score_delta`, `source` | ✅ Ja | ✅ Ja (Default-Whitelist) |
 | `data.sanitized` | `DataSanitizerAgent` | `AnalysisAgent`, EventRecorder | `source`, `data`, `evidence` (inkl. `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy`) | ✅ Ja | ⚙️ Opt-in (nicht in Default-Whitelist, siehe §2.1) |
 | `data.analyzed` | `AnalysisAgent` (Legacy) | `QualityAgent` (Legacy-Alias) | `classification` | ✅ Ja | ❌ Nein (veraltet, ersetzt durch `analysis.completed`) |
 
@@ -85,8 +85,6 @@ GENUS_RECORD_TOPICS=analysis.completed,quality.scored,decision.made,outcome.reco
 | **Intentionskonformität** | GENUS braucht auditierbare *Signale*, nicht rohe Inputs |
 | **Sicherheitsrisiko** | Path-Traversal- oder Injection-Angriffe über Payload-Inhalte |
 
-### Geplante Lösung: DataSanitizerAgent (P1-C)
-
 ### DataSanitizerAgent (P1-C1, implementiert)
 
 Ein vorgeschalteter Agent bereinigt die Daten deterministisch:
@@ -123,7 +121,7 @@ Ablehnung ist `evidence["blocked_by_policy"] = true`.
 Nach P1-C kann `data.sanitized` optional in die Recorder-Whitelist aufgenommen werden
 (Default-Whitelist bleibt in diesem PR unverändert).
 
-**Referenz:** `genus/agents/data_sanitizer_agent.py`, `genus/safety/sanitization_policy.py`
+**Referenz:** `genus/agents/data_sanitizer_agent.py`, `genus/security/sanitization/sanitization_policy.py`
 
 ---
 
