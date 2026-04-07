@@ -54,3 +54,7 @@ def test_concurrent_add_learning_entry_no_lost_entries():
 
         history = store.get_learning_history(failure_class="test_failure")
         assert len(history) == 20, f"Expected 20 entries, got {len(history)}"
+        run_ids_in_history = {entry["run_id"] for entry in history}
+        assert run_ids_in_history == {f"run_{i}" for i in range(20)}, (
+            f"Missing or overwritten entries: {run_ids_in_history}"
+        )
