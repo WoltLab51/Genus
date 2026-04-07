@@ -10,6 +10,7 @@ Validates that:
 
 import asyncio
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,6 +25,8 @@ from genus.dev.events import (
     dev_fix_completed_message,
     dev_review_completed_message,
 )
+from genus.memory.run_journal import RunJournal
+from genus.memory.store_jsonl import JsonlRunStore
 from genus.strategy.models import PlaybookId, StrategyDecision, StrategyProfile
 from genus.strategy.selector import StrategySelector
 from genus.strategy.store_json import StrategyStoreJson
@@ -34,6 +37,14 @@ from genus.strategy.store_json import StrategyStoreJson
 # ---------------------------------------------------------------------------
 
 RUN_ID = "2026-04-06T10-00-00Z__strattest__abc123"
+
+
+def _make_test_journal(run_id: str = RUN_ID) -> RunJournal:
+    tmpdir = tempfile.mkdtemp()
+    store = JsonlRunStore(base_dir=Path(tmpdir))
+    journal = RunJournal(run_id=run_id, store=store)
+    journal.initialize(goal="test goal")
+    return journal
 
 
 def _make_fake_decision(playbook: str = PlaybookId.TARGET_FAILING_TEST_FIRST) -> StrategyDecision:
@@ -211,6 +222,7 @@ async def test_strategy_selected_on_fix_iteration():
         bus,
         sender_id="TestOrch",
         timeout_s=2.0,
+        run_journal=_make_test_journal(),
         strategy_selector=mock_selector,
     )
 
@@ -238,6 +250,7 @@ async def test_strategy_payload_in_fix_request():
         bus,
         sender_id="TestOrch",
         timeout_s=2.0,
+        run_journal=_make_test_journal(),
         strategy_selector=mock_selector,
     )
 
@@ -263,6 +276,7 @@ async def test_no_strategy_selector_backwards_compat():
         bus,
         sender_id="TestOrch",
         timeout_s=2.0,
+        run_journal=_make_test_journal(),
         # strategy_selector omitted (default None)
     )
 
@@ -290,6 +304,7 @@ async def test_failure_class_none_falls_back_to_test_failure():
         bus,
         sender_id="TestOrch",
         timeout_s=2.0,
+        run_journal=_make_test_journal(),
         strategy_selector=mock_selector,
     )
 

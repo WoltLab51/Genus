@@ -68,10 +68,10 @@ async def test_devloop_with_workspace_and_sandbox(tmp_path):
 
     # Create orchestrator
     orchestrator = DevLoopOrchestrator(
-        bus=bus,
-        run_id=run_id,
-        goal="Write a test file and verify it passes",
+        bus,
+        sender_id="test-orchestrator",
         max_iterations=1,
+        run_journal=journal,
     )
 
     # Start agents
@@ -81,7 +81,10 @@ async def test_devloop_with_workspace_and_sandbox(tmp_path):
 
     try:
         # Run orchestrator (should complete one loop iteration)
-        result = await asyncio.wait_for(orchestrator.run(), timeout=30.0)
+        result = await asyncio.wait_for(
+            orchestrator.run(run_id, goal="Write a test file and verify it passes"),
+            timeout=30.0,
+        )
 
         # Assert loop completed successfully
         assert result["status"] == "completed", f"Expected completed, got {result['status']}"

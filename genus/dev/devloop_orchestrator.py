@@ -46,10 +46,10 @@ from genus.dev.runtime import (
     DevResponseFailedError,
     DevResponseTimeoutError,
 )
+from genus.memory.run_journal import RunJournal
 
 if TYPE_CHECKING:
     from genus.strategy.selector import StrategySelector
-    from genus.memory.run_journal import RunJournal
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +89,15 @@ class DevLoopOrchestrator:
         timeout_s:             Default timeout in seconds for awaiting phase responses.
         max_iterations:        Maximum number of fix iterations if tests fail (default: 3).
         commit_each_iteration: Whether to commit after each fix iteration (default: True).
+        run_journal:           Required :class:`~genus.memory.run_journal.RunJournal` instance.
+                               All phase events and artifacts are written here.
+                               This is the single source of truth for this run.
         strategy_selector:     Optional :class:`~genus.strategy.selector.StrategySelector`
                                instance. When provided, ``select_strategy()`` is called
                                before each fix iteration and the decision is embedded in
                                the ``dev.fix.requested`` payload.  When ``None`` (default)
                                the orchestrator behaves exactly as before (backwards-
                                compatible).
-        run_journal:           Optional RunJournal for logging strategy decisions.
-                               Used only when ``strategy_selector`` is also provided.
     """
 
     def __init__(
@@ -106,8 +107,9 @@ class DevLoopOrchestrator:
         timeout_s: float = 30.0,
         max_iterations: int = 3,
         commit_each_iteration: bool = True,
+        *,
+        run_journal: RunJournal,
         strategy_selector: "Optional[StrategySelector]" = None,
-        run_journal: "Optional[RunJournal]" = None,
     ) -> None:
         self._bus = bus
         self._sender_id = sender_id
@@ -154,6 +156,15 @@ class DevLoopOrchestrator:
                     run_id, self._sender_id, goal, context=context
                 )
             )
+            try:
+                self._run_journal.log_event(
+                    phase="loop",
+                    event_type="started",
+                    summary=f"Dev loop started: {goal}",
+                    data={"goal": goal, "context": context or {}},
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("journal write failed: %s", exc)
 
             # -- Planning phase --
             plan_req = events.dev_plan_requested_message(
@@ -178,6 +189,15 @@ class DevLoopOrchestrator:
                 listener.close()
 
             plan = plan_resp.payload["plan"]
+            try:
+                self._run_journal.save_artifact(
+                    phase="plan",
+                    artifact_type="plan",
+                    payload=plan,
+                    phase_id=plan_phase_id,
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("journal write failed: %s", exc)
 
             # -- Implementation phase (iteration 0) --
             iteration = 0
@@ -233,16 +253,37 @@ class DevLoopOrchestrator:
                     # Tests passed, continue to review
                     break
 
+                # Tests failed - log to journal
+                try:
+                    self._run_journal.log_event(
+                        phase="test",
+                        event_type="test_failed",
+                        summary=test_report.get("summary", "Tests failed"),
+                        phase_id=test_phase_id,
+                        data={"report": test_report, "iteration": iteration},
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("journal write failed: %s", exc)
+
                 # Tests failed - check if we can iterate
                 if iteration >= self._max_iterations:
                     # Max iterations reached
+                    reason = f"Max iterations ({self._max_iterations}) reached. Tests still failing: {test_report.get('summary', 'unknown')}"
                     await self._bus.publish(
                         events.dev_loop_failed_message(
                             run_id,
                             self._sender_id,
-                            f"Max iterations ({self._max_iterations}) reached. Tests still failing: {test_report.get('summary', 'unknown')}",
+                            reason,
                         )
                     )
+                    try:
+                        self._run_journal.log_event(
+                            phase="loop",
+                            event_type="failed",
+                            summary=reason,
+                        )
+                    except Exception as exc:  # pragma: no cover
+                        logger.warning("journal write failed: %s", exc)
                     return
 
                 # -- Fix phase --
@@ -280,12 +321,11 @@ class DevLoopOrchestrator:
                         "strategy_reason": strategy_decision.reason,
                     }
 
-                    if self._run_journal is not None:
-                        try:
-                            from genus.strategy.journal_integration import log_strategy_decision
-                            log_strategy_decision(self._run_journal, strategy_decision)
-                        except Exception as exc:  # pragma: no cover
-                            logger.warning("strategy decision could not be logged to journal: %s", exc)
+                    try:
+                        from genus.strategy.journal_integration import log_strategy_decision
+                        log_strategy_decision(self._run_journal, strategy_decision)
+                    except Exception as exc:  # pragma: no cover
+                        logger.warning("strategy decision could not be logged to journal: %s", exc)
 
                 fix_req = events.dev_fix_requested_message(
                     run_id, self._sender_id, findings,
@@ -305,6 +345,17 @@ class DevLoopOrchestrator:
                     fix_resp = await listener.wait(self._timeout_s)
                 finally:
                     listener.close()
+
+                try:
+                    self._run_journal.log_event(
+                        phase="fix",
+                        event_type="fix_completed",
+                        summary="Fix iteration completed",
+                        phase_id=fix_phase_id,
+                        data={"iteration": iteration},
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("journal write failed: %s", exc)
 
                 # Fix completed, loop back to test
 
@@ -326,6 +377,15 @@ class DevLoopOrchestrator:
                 listener.close()
 
             review = review_resp.payload["review"]
+            try:
+                self._run_journal.save_artifact(
+                    phase="review",
+                    artifact_type="review",
+                    payload=review,
+                    phase_id=review_phase_id,
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("journal write failed: %s", exc)
 
             # -- Ask/Stop policy gate --
             ask, reason = should_ask_user(
@@ -335,11 +395,20 @@ class DevLoopOrchestrator:
                 security_impact=False,
             )
             if ask:
+                fail_reason = f"Awaiting operator: {reason}"
                 await self._bus.publish(
                     events.dev_loop_failed_message(
-                        run_id, self._sender_id, f"Awaiting operator: {reason}"
+                        run_id, self._sender_id, fail_reason
                     )
                 )
+                try:
+                    self._run_journal.log_event(
+                        phase="loop",
+                        event_type="failed",
+                        summary=fail_reason,
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("journal write failed: %s", exc)
                 return
 
             # -- Loop completed --
@@ -350,6 +419,14 @@ class DevLoopOrchestrator:
                     summary="Dev loop completed successfully.",
                 )
             )
+            try:
+                self._run_journal.log_event(
+                    phase="loop",
+                    event_type="completed",
+                    summary="Dev loop completed successfully.",
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("journal write failed: %s", exc)
 
         except (DevResponseFailedError, DevResponseTimeoutError) as exc:
             # Any phase failure or timeout -> publish loop failed
@@ -358,4 +435,12 @@ class DevLoopOrchestrator:
                     run_id, self._sender_id, str(exc)
                 )
             )
+            try:
+                self._run_journal.log_event(
+                    phase="loop",
+                    event_type="failed",
+                    summary=str(exc),
+                )
+            except Exception as journal_exc:  # pragma: no cover
+                logger.warning("journal write failed: %s", journal_exc)
             raise
