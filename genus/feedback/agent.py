@@ -16,6 +16,9 @@ Design principles (GENUS-2.0)
   dropped with a warning — no journal write under run_id "unknown".
 - **No IO outside journal**: Pure transformation, MessageBus, and
   RunJournal only.
+- **Signal always flows**: ``feedback.received`` is published for every
+  valid ``outcome.recorded`` message, regardless of journal availability.
+  Journal writes are best-effort. Routing decisions belong to the Orchestrator.
 
 Output
 ------
@@ -45,7 +48,8 @@ class FeedbackAgent(Agent):
         message_bus:      The shared MessageBus.
         journal_factory:  Callable that takes a run_id (str) and returns
                           a RunJournal for that run. If the factory returns
-                          None, the feedback is dropped with a warning.
+                          None, journaling is skipped with a warning but
+                          ``feedback.received`` is still published.
         agent_id:         Optional explicit agent identifier.
         name:             Optional human-readable name.
     """
@@ -96,43 +100,42 @@ class FeedbackAgent(Agent):
         journal = self._journal_factory(run_id)
         if journal is None:
             logger.warning(
-                "FeedbackAgent: no journal found for run_id %s — feedback dropped",
+                "FeedbackAgent: no journal found for run_id %s — journaling skipped, signal continues",
                 run_id,
             )
-            return
+        else:
+            # 4. Write to journal — log_event
+            try:
+                journal.log_event(
+                    phase="feedback",
+                    event_type="feedback.received",
+                    summary=f"Feedback received: outcome={outcome.outcome}, score_delta={outcome.score_delta}",
+                    data={
+                        "outcome": outcome.outcome,
+                        "score_delta": outcome.score_delta,
+                        "source": outcome.source,
+                        "notes": outcome.notes,
+                        "timestamp": outcome.timestamp,
+                    },
+                )
+            except Exception as exc:
+                logger.warning(
+                    "FeedbackAgent: journal log_event failed for run %s: %s", run_id, exc
+                )
 
-        # 4. Write to journal — log_event
-        try:
-            journal.log_event(
-                phase="feedback",
-                event_type="feedback.received",
-                summary=f"Feedback received: outcome={outcome.outcome}, score_delta={outcome.score_delta}",
-                data={
-                    "outcome": outcome.outcome,
-                    "score_delta": outcome.score_delta,
-                    "source": outcome.source,
-                    "notes": outcome.notes,
-                    "timestamp": outcome.timestamp,
-                },
-            )
-        except Exception as exc:
-            logger.warning(
-                "FeedbackAgent: journal log_event failed for run %s: %s", run_id, exc
-            )
+            # 5. Write to journal — save_artifact
+            try:
+                journal.save_artifact(
+                    phase="feedback",
+                    artifact_type="feedback_record",
+                    payload=outcome.to_message_payload(),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "FeedbackAgent: journal save_artifact failed for run %s: %s", run_id, exc
+                )
 
-        # 5. Write to journal — save_artifact
-        try:
-            journal.save_artifact(
-                phase="feedback",
-                artifact_type="feedback_record",
-                payload=outcome.to_message_payload(),
-            )
-        except Exception as exc:
-            logger.warning(
-                "FeedbackAgent: journal save_artifact failed for run %s: %s", run_id, exc
-            )
-
-        # 6. Publish feedback.received (observability — no side effects)
+        # 6. Publish feedback.received — IMMER, unabhängig vom Journal
         await self._bus.publish(
             Message(
                 topic=FEEDBACK_RECEIVED,
