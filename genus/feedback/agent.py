@@ -6,6 +6,9 @@ into the RunJournal as an event and artifact.
 
 Design principles (GENUS-2.0)
 ------------------------------
+- **Signal always flows**: feedback.received is published for every valid
+  outcome.recorded message, regardless of journal availability.
+  Journal writes are best-effort. Routing decisions belong to the Orchestrator.
 - **Signal only**: Feedback is recorded, not acted upon directly.
   No strategy weights are changed here.
 - **Fail-closed logging**: If the journal write fails, a warning is
@@ -45,7 +48,8 @@ class FeedbackAgent(Agent):
         message_bus:      The shared MessageBus.
         journal_factory:  Callable that takes a run_id (str) and returns
                           a RunJournal for that run. If the factory returns
-                          None, the feedback is dropped with a warning.
+                          None, journal writes are skipped with a warning
+                          but the signal is still published.
         agent_id:         Optional explicit agent identifier.
         name:             Optional human-readable name.
     """
@@ -92,47 +96,46 @@ class FeedbackAgent(Agent):
             )
             return
 
-        # 3. Get journal for this run
+        # 3. Get journal for this run — best-effort, never blocking
         journal = self._journal_factory(run_id)
         if journal is None:
             logger.warning(
-                "FeedbackAgent: no journal found for run_id %s — feedback dropped",
+                "FeedbackAgent: no journal found for run_id %s — journaling skipped, signal continues",
                 run_id,
             )
-            return
+        else:
+            # 4. Write to journal — log_event
+            try:
+                journal.log_event(
+                    phase="feedback",
+                    event_type="feedback.received",
+                    summary=f"Feedback received: outcome={outcome.outcome}, score_delta={outcome.score_delta}",
+                    data={
+                        "outcome": outcome.outcome,
+                        "score_delta": outcome.score_delta,
+                        "source": outcome.source,
+                        "notes": outcome.notes,
+                        "timestamp": outcome.timestamp,
+                    },
+                )
+            except Exception as exc:
+                logger.warning(
+                    "FeedbackAgent: journal log_event failed for run %s: %s", run_id, exc
+                )
 
-        # 4. Write to journal — log_event
-        try:
-            journal.log_event(
-                phase="feedback",
-                event_type="feedback.received",
-                summary=f"Feedback received: outcome={outcome.outcome}, score_delta={outcome.score_delta}",
-                data={
-                    "outcome": outcome.outcome,
-                    "score_delta": outcome.score_delta,
-                    "source": outcome.source,
-                    "notes": outcome.notes,
-                    "timestamp": outcome.timestamp,
-                },
-            )
-        except Exception as exc:
-            logger.warning(
-                "FeedbackAgent: journal log_event failed for run %s: %s", run_id, exc
-            )
+            # 5. Write to journal — save_artifact
+            try:
+                journal.save_artifact(
+                    phase="feedback",
+                    artifact_type="feedback_record",
+                    payload=outcome.to_message_payload(),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "FeedbackAgent: journal save_artifact failed for run %s: %s", run_id, exc
+                )
 
-        # 5. Write to journal — save_artifact
-        try:
-            journal.save_artifact(
-                phase="feedback",
-                artifact_type="feedback_record",
-                payload=outcome.to_message_payload(),
-            )
-        except Exception as exc:
-            logger.warning(
-                "FeedbackAgent: journal save_artifact failed for run %s: %s", run_id, exc
-            )
-
-        # 6. Publish feedback.received (observability — no side effects)
+        # 6. Publish feedback.received — ALWAYS, routing decisions belong to the Orchestrator
         await self._bus.publish(
             Message(
                 topic=FEEDBACK_RECEIVED,
