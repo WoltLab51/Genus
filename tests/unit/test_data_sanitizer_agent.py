@@ -23,7 +23,7 @@ from genus.agents.data_sanitizer_agent import (
     DataSanitizerAgent,
 )
 from genus.communication.message_bus import Message, MessageBus
-from genus.safety.sanitization_policy import SanitizationPolicy
+from genus.security.sanitization.sanitization_policy import SanitizationPolicy
 
 
 # ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ from typing import Any, Dict, Optional
 from genus.communication.message_bus import Message, MessageBus
 from genus.core.agent import Agent, AgentState
 from genus.core.run import get_run_id
-from genus.safety.sanitization_policy import (
+from genus.security.sanitization.sanitization_policy import (
     DEFAULT_POLICY,
     SanitizationPolicy,
     sanitize_payload,

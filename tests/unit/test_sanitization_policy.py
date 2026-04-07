@@ -18,7 +18,7 @@ Covers:
 
 import pytest
 
-from genus.safety.sanitization_policy import (
+from genus.security.sanitization.sanitization_policy import (
     DEFAULT_POLICY,
     SanitizationPolicy,
     sanitize_payload,
