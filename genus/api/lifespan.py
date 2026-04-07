@@ -144,7 +144,7 @@ async def _start_agents(bus: MessageBus) -> List[object]:
         from genus.memory.run_journal import RunJournal
         from genus.memory.store_jsonl import JsonlRunStore
 
-        def _journal_factory(run_id):
+        def _journal_factory(run_id: str):
             return RunJournal(run_id, JsonlRunStore())
 
         agent = FeedbackAgent(bus, journal_factory=_journal_factory)
