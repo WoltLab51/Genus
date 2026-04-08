@@ -17,13 +17,14 @@ from genus.api.routers import health, outcome, runs
 from genus.api.routers import kill_switch as kill_switch_router
 
 
-def create_app(*, api_key: str, message_bus=None, kill_switch=None, use_lifespan: bool = False) -> FastAPI:
+def create_app(*, api_key: str, message_bus=None, kill_switch=None, run_store=None, use_lifespan: bool = False) -> FastAPI:
     """Create and configure the GENUS FastAPI application.
 
     Args:
         api_key:       Required API key for Bearer authentication.
         message_bus:   Injected MessageBus (for tests). If None and use_lifespan=False, bus is None.
         kill_switch:   Injected KillSwitch (for tests).
+        run_store:     Injected JsonlRunStore (for tests). If None, deps.py creates a default instance.
         use_lifespan:  If True, use genus_lifespan for production startup.
                        If False (default), no automatic agent startup (test mode).
 
@@ -47,6 +48,7 @@ def create_app(*, api_key: str, message_bus=None, kill_switch=None, use_lifespan
     app.state.api_key = api_key
     app.state.message_bus = message_bus
     app.state.kill_switch = kill_switch
+    app.state.run_store = run_store
 
     # Middleware (order matters: errors outermost)
     app.add_middleware(ErrorHandlingMiddleware)
