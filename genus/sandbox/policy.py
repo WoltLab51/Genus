@@ -40,7 +40,8 @@ class SandboxPolicy:
             allowed_executables: Set of allowed executable names.
                                 Default: {"python", "python.exe", "pytest"}
             allowed_argv_prefixes: List of allowed command prefixes.
-                                  Default: [["python", "-m", "pytest"]]
+                                  Default: common python/pytest/git prefixes
+                                  (excludes ["python", "-c"] — see NOTE below)
             allowed_env_keys: Set of allowed environment variable keys.
                              Default: empty set (no env vars allowed)
             max_stdout_bytes: Maximum stdout size before truncation.
@@ -53,12 +54,14 @@ class SandboxPolicy:
             allowed_executables = {"python", "python.exe", "pytest", "git", "git.exe"}
 
         # Default allowed argv prefixes
+        # NOTE: ["python", "-c"] is intentionally NOT included — it would allow
+        # arbitrary code execution and defeats the purpose of the sandbox policy.
+        # If inline Python execution is needed, add a dedicated, restricted prefix.
         if allowed_argv_prefixes is None:
             allowed_argv_prefixes = [
                 # Python/pytest commands
                 ["python", "-m", "pytest"],
                 ["python", "-m", "ruff"],
-                ["python", "-c"],
                 ["python", "--version"],
                 ["pytest"],
                 # Git commands (PR #28)

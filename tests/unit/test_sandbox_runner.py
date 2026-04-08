@@ -21,6 +21,16 @@ from genus.sandbox.runner import SandboxRunner
 from genus.security.kill_switch import KillSwitch, KillSwitchActiveError
 
 
+def _policy_with_python_c(**kwargs):
+    """Create a SandboxPolicy that explicitly allows python -c for execution tests."""
+    base_prefixes = [
+        ["python", "-c"],
+        ["python", "--version"],
+        ["python", "-m", "pytest"],
+    ]
+    return SandboxPolicy(allowed_argv_prefixes=base_prefixes, **kwargs)
+
+
 class TestSandboxRunnerKillSwitch:
     """Tests for kill-switch enforcement."""
 
@@ -115,7 +125,7 @@ class TestSandboxRunnerExecution:
             workspace = RunWorkspace(run_id="test-005", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(argv=["python", "-c", "print('hello')"], cwd=".")
@@ -133,7 +143,7 @@ class TestSandboxRunnerExecution:
             workspace = RunWorkspace(run_id="test-006", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(
@@ -152,7 +162,7 @@ class TestSandboxRunnerExecution:
             workspace = RunWorkspace(run_id="test-007", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(
@@ -174,7 +184,7 @@ class TestSandboxRunnerTimeout:
             workspace = RunWorkspace(run_id="test-008", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             # Command that sleeps longer than timeout
@@ -194,7 +204,7 @@ class TestSandboxRunnerTimeout:
             workspace = RunWorkspace(run_id="test-009", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy(default_timeout_s=1.0)
+            policy = _policy_with_python_c(default_timeout_s=1.0)
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(
@@ -212,7 +222,7 @@ class TestSandboxRunnerTimeout:
             workspace = RunWorkspace(run_id="test-010", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy(max_timeout_s=2.0)
+            policy = _policy_with_python_c(max_timeout_s=2.0)
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(
@@ -237,7 +247,7 @@ class TestSandboxRunnerOutputTruncation:
             workspace = RunWorkspace(run_id="test-011", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy(max_stdout_bytes=100)
+            policy = _policy_with_python_c(max_stdout_bytes=100)
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             # Generate output larger than limit
@@ -257,7 +267,7 @@ class TestSandboxRunnerOutputTruncation:
             workspace = RunWorkspace(run_id="test-012", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy(max_stderr_bytes=100)
+            policy = _policy_with_python_c(max_stderr_bytes=100)
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(
@@ -287,7 +297,7 @@ class TestSandboxRunnerWorkingDirectory:
             subdir = workspace.repo_dir / "subdir"
             subdir.mkdir()
 
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(
@@ -328,7 +338,7 @@ class TestSandboxRunnerSecurityInvariants:
             workspace = RunWorkspace(run_id="test-015", root=Path(tmpdir))
             workspace.ensure_dirs()
 
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             # Python -c executes Python code, not shell
@@ -351,7 +361,7 @@ class TestSandboxRunnerSecurityInvariants:
             workspace.ensure_dirs()
 
             # Policy allows no env vars
-            policy = SandboxPolicy()
+            policy = _policy_with_python_c()
             runner = SandboxRunner(workspace=workspace, policy=policy)
 
             cmd = SandboxCommand(

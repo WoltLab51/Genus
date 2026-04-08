@@ -19,6 +19,50 @@ from genus.sandbox.models import (
 from genus.sandbox.policy import SandboxPolicy
 from genus.security.kill_switch import KillSwitch, KillSwitchActiveError, DEFAULT_KILL_SWITCH
 
+# Safe environment variable keys that may be passed to subprocesses.
+# Only keys in this set are candidates when env=None (default).
+_SAFE_ENV_KEYS = frozenset({
+    "PATH",
+    "HOME",
+    "USER",
+    "USERNAME",        # Windows
+    "LOGNAME",
+    "SHELL",
+    "TMPDIR",
+    "TEMP",            # Windows
+    "TMP",             # Windows
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    # Git-specific (needed for commits)
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_SSH_COMMAND",
+    # Python
+    "PYTHONPATH",
+    "VIRTUAL_ENV",
+    "CONDA_DEFAULT_ENV",
+})
+
+# Explicitly blocked keys — these must NEVER be passed to subprocesses.
+_BLOCKED_ENV_KEYS = frozenset({
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "AZURE_CLIENT_SECRET",
+    "DATABASE_URL",
+    "SECRET_KEY",
+    "API_KEY",
+})
+
 
 class SandboxRunner:
     """Execute commands in a sandboxed environment.
@@ -184,23 +228,31 @@ class SandboxRunner:
     ) -> Optional[dict]:
         """Filter environment variables based on policy.
 
+        When env is None (default), builds a minimal safe environment from the
+        parent process environment — only safe, non-secret keys are included.
+        This prevents credential leakage to subprocess.
+
         Args:
-            env: Environment variables from command.
+            env: Explicit environment dict from command, or None for safe default.
 
         Returns:
-            Filtered environment dict or None to inherit parent env.
+            Filtered environment dict. Never returns None (never inherits full parent env).
         """
         if env is None:
-            # Inherit parent environment (already filtered by OS)
-            return None
+            # Build minimal safe environment from parent — never inherit everything
+            safe_env = {}
+            for key in _SAFE_ENV_KEYS:
+                if key in os.environ and key not in _BLOCKED_ENV_KEYS:
+                    safe_env[key] = os.environ[key]
+            return safe_env if safe_env else {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
 
-        # Filter to only allowed keys
+        # Explicit env dict provided: filter to allowed keys only
         filtered = {
-            k: v for k, v in env.items() if k in self.policy.allowed_env_keys
+            k: v for k, v in env.items()
+            if k in self.policy.allowed_env_keys and k not in _BLOCKED_ENV_KEYS
         }
 
-        # Merge with minimal safe environment
-        # Add PATH from parent if not present
+        # Always include PATH from safe env if not already in filtered
         if "PATH" not in filtered and "PATH" in os.environ:
             filtered["PATH"] = os.environ["PATH"]
 

@@ -76,7 +76,7 @@ async def github_push_branch(
         policy.assert_action_allowed("push")
 
         # Check kill-switch
-        kill_switch.assert_enabled()
+        kill_switch.assert_not_active()
 
         # Log to journal (if provided)
         if journal:
