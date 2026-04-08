@@ -2,6 +2,7 @@
 FastAPI Dependencies
 
 Provides reusable dependency functions:
+- get_run_store(request)    → JsonlRunStore from app.state or default instance
 - get_message_bus(request) → MessageBus from app.state
 - verify_operator(request)  → raises HTTPException 403 if not authorized
 - verify_admin(request)     → raises HTTPException 403 if not authorized
@@ -11,6 +12,16 @@ Provides reusable dependency functions:
 from typing import Optional
 
 from fastapi import HTTPException, Request
+
+from genus.memory.store_jsonl import JsonlRunStore
+
+
+def get_run_store(request: Request) -> JsonlRunStore:
+    """Return the JsonlRunStore from app state, or a default instance."""
+    store = getattr(request.app.state, "run_store", None)
+    if store is None:
+        store = JsonlRunStore()
+    return store
 
 
 def get_message_bus(request: Request):
