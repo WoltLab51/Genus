@@ -57,7 +57,7 @@ def test_filter_env_none_includes_path():
 
 def test_filter_env_none_includes_home():
     runner = make_runner()
-    with patch.dict(os.environ, {"HOME": "/home/user", "PATH": "/usr/bin"}, clear=False):
+    with patch.dict(os.environ, {"HOME": "/home/user", "PATH": "/usr/bin"}):
         result = runner._filter_env(None)
     assert "HOME" in result
 

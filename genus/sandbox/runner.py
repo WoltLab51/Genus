@@ -47,7 +47,8 @@ _SAFE_ENV_KEYS = frozenset({
     "CONDA_DEFAULT_ENV",
 })
 
-# Explicitly blocked keys — these must NEVER be passed to subprocesses.
+# Fallback PATH used when no PATH is found in the parent environment.
+_FALLBACK_PATH = "/usr/bin:/bin"
 _BLOCKED_ENV_KEYS = frozenset({
     "GITHUB_TOKEN",
     "GH_TOKEN",
@@ -244,7 +245,7 @@ class SandboxRunner:
             for key in _SAFE_ENV_KEYS:
                 if key in os.environ and key not in _BLOCKED_ENV_KEYS:
                     safe_env[key] = os.environ[key]
-            return safe_env if safe_env else {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+            return safe_env if safe_env else {"PATH": os.environ.get("PATH", _FALLBACK_PATH)}
 
         # Explicit env dict provided: filter to allowed keys only
         filtered = {
