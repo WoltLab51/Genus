@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from genus.api.deps import get_kill_switch, verify_admin, verify_operator
+from genus.api.deps import get_kill_switch, verify_admin, verify_reader
 
 router = APIRouter()
 
@@ -44,7 +44,7 @@ async def deactivate(request: Request, _: None = Depends(verify_admin)):
 
 
 @router.get("/status")
-async def status(request: Request, _: None = Depends(verify_operator)):
+async def status(request: Request, _: None = Depends(verify_reader)):
     ks = get_kill_switch(request)
     if ks is None:
         return {"active": False, "reason": "", "actor": None}

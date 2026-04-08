@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from genus.api.deps import get_message_bus, get_run_store, verify_operator
+from genus.api.deps import get_message_bus, get_run_store, verify_operator, verify_reader
 from genus.communication.message_bus import Message
 from genus.core.run import new_run_id
 from genus.dev.topics import DEV_LOOP_COMPLETED, DEV_LOOP_FAILED, DEV_LOOP_STARTED
@@ -84,7 +84,7 @@ async def start_run(
 @router.get("/{run_id}")
 async def get_run_status(
     run_id: str,
-    _: None = Depends(verify_operator),
+    _: None = Depends(verify_reader),
     run_store: JsonlRunStore = Depends(get_run_store),
 ) -> JSONResponse:
     """Get the current status of a run from its RunJournal."""
@@ -151,8 +151,8 @@ async def run_status_ws(
 
     # 1. Auth check
     app = websocket.app
-    expected_key = getattr(app.state, "api_key", None)
-    if not token or token != expected_key:
+    api_keys = getattr(app.state, "api_keys", set())
+    if not token or token not in api_keys:
         await websocket.send_json({"type": "error", "message": "Unauthorized"})
         await websocket.close(code=1008)
         return

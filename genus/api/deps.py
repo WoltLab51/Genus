@@ -4,8 +4,9 @@ FastAPI Dependencies
 Provides reusable dependency functions:
 - get_run_store(request)    → JsonlRunStore from app.state or default instance
 - get_message_bus(request) → MessageBus from app.state
-- verify_operator(request)  → raises HTTPException 403 if not authorized
-- verify_admin(request)     → raises HTTPException 403 if not authorized
+- verify_admin(request)     → raises HTTPException 401/403 if not admin
+- verify_operator(request)  → raises HTTPException 401/403 if not admin or operator
+- verify_reader(request)    → raises HTTPException 401/403 if not authenticated
 - get_kill_switch(request)  → KillSwitch from app.state or None
 """
 
@@ -29,35 +30,46 @@ def get_message_bus(request: Request):
     return request.app.state.message_bus
 
 
-def verify_operator(request: Request) -> None:
-    """Verify that the caller has operator-level access.
-
-    For v1: ApiKeyMiddleware already authenticated the caller before the
-    request reaches any route handler.  This dependency is a guard-rail that
-    raises 403 if the request somehow arrives here without the ``authenticated``
-    flag set on ``request.state`` (which the middleware sets on success).
-
-    Role-level enforcement via the role model follows in Phase 2.
-
-    Raises:
-        HTTPException: 403 if the request is missing authentication context.
-    """
-    if not getattr(request.state, "authenticated", False):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-
 def verify_admin(request: Request) -> None:
-    """Verify that the caller has admin-level access.
-
-    For v1: same mechanism as verify_operator — ApiKeyMiddleware sets
-    request.state.authenticated. Admin role enforcement via role model
-    follows in a future phase.
+    """Require admin role.
 
     Raises:
-        HTTPException: 403 if not authenticated.
+        HTTPException: 401 if the request is missing authentication context.
+        HTTPException: 403 if the caller's role is not "admin".
     """
     if not getattr(request.state, "authenticated", False):
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    role = getattr(request.state, "role", None)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+
+def verify_operator(request: Request) -> None:
+    """Require operator or admin role.
+
+    Raises:
+        HTTPException: 401 if the request is missing authentication context.
+        HTTPException: 403 if the caller's role is neither "admin" nor "operator".
+    """
+    if not getattr(request.state, "authenticated", False):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    role = getattr(request.state, "role", None)
+    if role not in {"admin", "operator"}:
+        raise HTTPException(status_code=403, detail="Operator role required")
+
+
+def verify_reader(request: Request) -> None:
+    """Require reader, operator, or admin role (any authenticated user).
+
+    Raises:
+        HTTPException: 401 if the request is missing authentication context.
+        HTTPException: 403 if the caller has no recognised role.
+    """
+    if not getattr(request.state, "authenticated", False):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    role = getattr(request.state, "role", None)
+    if role not in {"admin", "operator", "reader"}:
+        raise HTTPException(status_code=403, detail="Reader role required")
 
 
 def get_kill_switch(request: Request) -> Optional[object]:
