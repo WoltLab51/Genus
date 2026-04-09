@@ -12,6 +12,7 @@ This agent is read-only except for:
 No file system modifications, no network calls, no external services.
 """
 
+import logging
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from genus.communication.message_bus import Message, MessageBus
@@ -20,9 +21,12 @@ from genus.dev import topics as dev_topics
 from genus.dev.agents.base import DevAgentBase
 from genus.memory.run_journal import RunJournal
 from genus.memory.store_jsonl import JsonlRunStore
+from genus.memory.tool_memory import ToolMemoryIndex
 from genus.meta import events as meta_events
 from genus.meta.evaluation_models import EvaluationInput
 from genus.meta.evaluator import RunEvaluator
+
+logger = logging.getLogger(__name__)
 
 
 class EvaluationAgent(DevAgentBase):
@@ -41,6 +45,9 @@ class EvaluationAgent(DevAgentBase):
         agent_id: Unique identifier for this agent.
         store: JsonlRunStore for accessing run journals.
         evaluator: Optional RunEvaluator instance (uses default if not provided).
+        tool_memory_index: Optional ToolMemoryIndex for tool usage context.
+                           If None, tool_context will not be populated.
+                           The caller is responsible for building the index.
 
     Example::
 
@@ -56,10 +63,12 @@ class EvaluationAgent(DevAgentBase):
         agent_id: str = "EvaluationAgent",
         store: Optional[JsonlRunStore] = None,
         evaluator: Optional[RunEvaluator] = None,
+        tool_memory_index: Optional[ToolMemoryIndex] = None,
     ) -> None:
         super().__init__(bus, agent_id)
         self._store = store or JsonlRunStore()
         self._evaluator = evaluator or RunEvaluator()
+        self._tool_memory_index = tool_memory_index  # None = disabled
 
     def _subscribe_topics(self) -> List[Tuple[str, Callable[[Message], Awaitable[None]]]]:
         """Register handlers for dev loop completion events."""
@@ -108,6 +117,7 @@ class EvaluationAgent(DevAgentBase):
                 "recommendations": artifact.recommendations,
                 "strategy_recommendations": artifact.strategy_recommendations,
                 "evidence": artifact.evidence,
+                "tool_context": eval_input.tool_context,
             }
 
             journal.save_artifact(
@@ -197,6 +207,28 @@ class EvaluationAgent(DevAgentBase):
         if iterations_used == 0 and len(test_reports) > 1:
             iterations_used = max(0, len(test_reports) - 1)
 
+        # Build tool context from ToolMemoryIndex if available and built
+        tool_context = None
+        if self._tool_memory_index is not None and self._tool_memory_index.is_built:
+            try:
+                top_fix_tools = self._tool_memory_index.top_tools(phase="fix", n=5)
+                tool_context = {
+                    "top_tools_fix": [
+                        {
+                            "tool_name": s.tool_name,
+                            "total_calls": s.total_calls,
+                            "calls_in_phase": s.calls_by_phase.get("fix", 0),
+                        }
+                        for s in top_fix_tools
+                    ],
+                    "indexed_run_count": self._tool_memory_index.indexed_run_count,
+                }
+            except Exception as exc:
+                logger.warning(
+                    "EvaluationAgent: tool_context build failed: %s", exc
+                )
+                tool_context = None
+
         # Build evaluation input
         eval_input = EvaluationInput(
             run_id=journal.run_id,
@@ -206,6 +238,7 @@ class EvaluationAgent(DevAgentBase):
             goal=goal,
             github=None,  # TODO: Add GitHub context when available
             events=[],  # Could add subset of events if needed
+            tool_context=tool_context,
         )
 
         return eval_input

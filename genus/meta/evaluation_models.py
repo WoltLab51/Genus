@@ -24,6 +24,11 @@ class EvaluationInput:
         test_reports: List of test report artifacts (as dicts).
         github: Optional GitHub context (pr_url, checks summary).
         events: Optional subset of journal events for additional context.
+        tool_context: Optional tool usage context from ToolMemoryIndex.
+                      Dict with keys:
+                      - "top_tools_fix": list of {tool_name, total_calls, calls_in_phase}
+                        for top tools used in fix phase across recent runs
+                      - "indexed_run_count": int, how many runs were indexed
     """
     run_id: str
     final_status: str  # Literal["completed", "failed"]
@@ -32,6 +37,7 @@ class EvaluationInput:
     goal: Optional[str] = None
     github: Optional[Dict[str, Any]] = None
     events: List[Dict[str, Any]] = field(default_factory=list)
+    tool_context: Optional[Dict[str, Any]] = None
 
 
 @dataclass
