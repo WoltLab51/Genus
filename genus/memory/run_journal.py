@@ -312,6 +312,35 @@ class RunJournal:
         """
         return self._store.list_artifacts(self.run_id, artifact_type)
 
+    def get_artifacts(
+        self,
+        artifact_type: Optional[str] = None,
+        phase: Optional[str] = None,
+    ) -> List[ArtifactRecord]:
+        """Load artifact records, optionally filtered by type and/or phase.
+
+        Unlike list_artifacts() which returns only IDs, this method returns
+        the full ArtifactRecord objects.
+
+        Args:
+            artifact_type: Optional filter by artifact type.
+            phase: Optional filter by phase.
+
+        Returns:
+            List of ArtifactRecord objects, ordered by saved_at (ascending).
+        """
+        artifact_ids = self._store.list_artifacts(self.run_id, artifact_type=artifact_type)
+        records = []
+        for artifact_id in artifact_ids:
+            record = self._store.load_artifact(self.run_id, artifact_id)
+            if record is None:
+                continue
+            if phase is not None and record.phase != phase:
+                continue
+            records.append(record)
+        # Already sorted by ID (which encodes timestamp), so order is chronological
+        return records
+
     # ------------------------------------------------------------------
     # Utility methods
     # ------------------------------------------------------------------

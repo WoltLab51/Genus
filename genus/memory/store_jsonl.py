@@ -370,6 +370,43 @@ class JsonlRunStore:
 
         return sorted(runs)
 
+    def list_run_summaries(
+        self,
+        limit: Optional[int] = None,
+    ) -> List[RunHeader]:
+        """List run headers for all runs, most recent first.
+
+        Loads header.json for each run directory. Runs without a header
+        (e.g. created but never initialized) are silently skipped.
+
+        Args:
+            limit: If given, return only the N most recent runs.
+                   "Most recent" = highest sorted run_id (which encodes timestamp).
+
+        Returns:
+            List of RunHeader objects, ordered by run_id descending (most recent first).
+        """
+        if not self._base_dir.exists():
+            return []
+
+        run_dirs = sorted(
+            [p for p in self._base_dir.iterdir() if p.is_dir()],
+            key=lambda p: p.name,
+            reverse=True,  # most recent first (run_id encodes timestamp)
+        )
+
+        if limit is not None:
+            run_dirs = run_dirs[:limit]
+
+        summaries = []
+        for run_dir in run_dirs:
+            run_id = run_dir.name
+            header = self.load_header(run_id)
+            if header is not None:
+                summaries.append(header)
+
+        return summaries
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
