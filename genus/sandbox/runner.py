@@ -7,6 +7,8 @@ Executes commands in an isolated environment with security restrictions.
 import asyncio
 import time
 import os
+import resource
+import sys
 from typing import Optional
 
 from genus.workspace.workspace import RunWorkspace
@@ -64,6 +66,53 @@ _BLOCKED_ENV_KEYS = frozenset({
     "API_KEY",
 })
 
+# Standard resource limits for sandboxed subprocesses
+_DEFAULT_MAX_MEMORY_BYTES = 512 * 1024 * 1024   # 512 MB
+_DEFAULT_MAX_NPROC = 64                           # Max 64 subprocesses
+_DEFAULT_MAX_FSIZE_BYTES = 100 * 1024 * 1024     # 100 MB max file size written
+
+
+def _make_preexec_fn(
+    max_memory_bytes: int = _DEFAULT_MAX_MEMORY_BYTES,
+    max_nproc: int = _DEFAULT_MAX_NPROC,
+    max_fsize_bytes: int = _DEFAULT_MAX_FSIZE_BYTES,
+):
+    """Return a preexec_fn callable for resource limiting.
+
+    Only works on Unix (Linux/macOS). On Windows, returns None.
+
+    Args:
+        max_memory_bytes: Maximum virtual memory (address space) in bytes.
+        max_nproc: Maximum number of subprocesses/threads.
+        max_fsize_bytes: Maximum file size that can be written in bytes.
+
+    Returns:
+        A callable suitable for use as preexec_fn, or None on Windows.
+    """
+    if sys.platform == "win32":
+        return None
+
+    def _set_limits():
+        try:
+            # Virtual memory limit (address space)
+            resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
+        except (ValueError, resource.error):
+            pass  # Some systems don't support RLIMIT_AS
+
+        try:
+            # Max number of processes/threads
+            resource.setrlimit(resource.RLIMIT_NPROC, (max_nproc, max_nproc))
+        except (ValueError, resource.error):
+            pass
+
+        try:
+            # Max file size
+            resource.setrlimit(resource.RLIMIT_FSIZE, (max_fsize_bytes, max_fsize_bytes))
+        except (ValueError, resource.error):
+            pass
+
+    return _set_limits
+
 
 class SandboxRunner:
     """Execute commands in a sandboxed environment.
@@ -105,6 +154,9 @@ class SandboxRunner:
         workspace: RunWorkspace,
         policy: SandboxPolicy,
         kill_switch: KillSwitch = DEFAULT_KILL_SWITCH,
+        max_memory_bytes: int = _DEFAULT_MAX_MEMORY_BYTES,
+        max_nproc: int = _DEFAULT_MAX_NPROC,
+        max_fsize_bytes: int = _DEFAULT_MAX_FSIZE_BYTES,
     ):
         """Initialize the sandbox runner.
 
@@ -112,10 +164,18 @@ class SandboxRunner:
             workspace: The RunWorkspace to execute commands in.
             policy: The SandboxPolicy to enforce.
             kill_switch: The KillSwitch instance (defaults to DEFAULT_KILL_SWITCH).
+            max_memory_bytes: Maximum virtual memory for subprocesses (Unix only).
+            max_nproc: Maximum number of subprocesses/threads (Unix only).
+            max_fsize_bytes: Maximum file size subprocesses may write (Unix only).
         """
         self.workspace = workspace
         self.policy = policy
         self.kill_switch = kill_switch
+        self._preexec_fn = _make_preexec_fn(
+            max_memory_bytes=max_memory_bytes,
+            max_nproc=max_nproc,
+            max_fsize_bytes=max_fsize_bytes,
+        )
 
     async def run(
         self,
@@ -174,6 +234,7 @@ class SandboxRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=filtered_env,
+                preexec_fn=self._preexec_fn,
             )
 
             # Wait with timeout

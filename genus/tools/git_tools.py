@@ -8,14 +8,15 @@ Design principles:
 - No shell execution: All commands use argv lists
 - Allowlist enforcement: Only specific git commands are permitted
 - Workspace-scoped: All operations happen within RunWorkspace
-- No push in v1: GitHub push operations reserved for future PR
 
 Security:
 - All git commands run through SandboxRunner with SandboxPolicy
 - Command arguments must match allowlisted patterns
+- Branch and remote names are validated internally before use
 - No arbitrary command execution
 """
 
+import re
 from typing import Any, Dict, List, Optional
 
 from genus.workspace.workspace import RunWorkspace
@@ -23,6 +24,68 @@ from genus.sandbox.models import SandboxCommand, SandboxResult
 from genus.sandbox.runner import SandboxRunner
 from genus.sandbox.policy import SandboxPolicy
 from genus.security.kill_switch import DEFAULT_KILL_SWITCH
+
+# Allowed characters: alphanumeric, hyphens, underscores, slashes, dots
+_BRANCH_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$')
+_BRANCH_MAX_LEN = 200
+
+# Remote names may not contain slashes
+_REMOTE_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._\-]*$')
+_REMOTE_MAX_LEN = 100
+
+
+def _validate_branch_name(name: str) -> str:
+    """Validate and return a git branch name.
+
+    Raises:
+        ValueError: If the name is invalid or potentially dangerous.
+    """
+    if not name or not name.strip():
+        raise ValueError("Branch name cannot be empty")
+    name = name.strip()
+    if len(name) > _BRANCH_MAX_LEN:
+        raise ValueError(
+            "Branch name too long: {} > {} chars".format(len(name), _BRANCH_MAX_LEN)
+        )
+    if name.startswith("-"):
+        raise ValueError(
+            "Branch name must not start with '-' (would be interpreted as flag): {!r}".format(name)
+        )
+    if ".." in name:
+        raise ValueError("Branch name must not contain '..': {!r}".format(name))
+    if "@{" in name:
+        raise ValueError("Branch name must not contain '@{{': {!r}".format(name))
+    if name.endswith(".lock"):
+        raise ValueError("Branch name must not end with '.lock': {!r}".format(name))
+    if name.endswith("."):
+        raise ValueError("Branch name must not end with '.': {!r}".format(name))
+    if not _BRANCH_NAME_RE.match(name):
+        raise ValueError(
+            "Branch name contains invalid characters: {!r}. "
+            "Allowed: alphanumeric, hyphens, underscores, slashes, dots.".format(name)
+        )
+    return name
+
+
+def _validate_remote_name(name: str) -> str:
+    """Validate and return a git remote name.
+
+    Raises:
+        ValueError: If the name is invalid or potentially dangerous.
+    """
+    if not name or not name.strip():
+        raise ValueError("Remote name cannot be empty")
+    name = name.strip()
+    if len(name) > _REMOTE_MAX_LEN:
+        raise ValueError("Remote name too long: {!r}".format(name))
+    if name.startswith("-"):
+        raise ValueError("Remote name must not start with '-': {!r}".format(name))
+    if not _REMOTE_NAME_RE.match(name):
+        raise ValueError(
+            "Remote name contains invalid characters: {!r}. "
+            "Allowed: alphanumeric, hyphens, underscores, dots.".format(name)
+        )
+    return name
 
 
 class ToolResult:
@@ -191,9 +254,8 @@ async def git_create_branch(
         ToolResult with success status or error.
 
     Security:
-        Branch name should be validated by caller to avoid command injection.
-        This function uses argv list to prevent shell injection, but callers
-        should still sanitize branch names to prevent git-specific issues.
+        Branch name is validated internally via `_validate_branch_name()`.
+        This function uses argv list to prevent shell injection.
 
     Example::
 
@@ -202,6 +264,8 @@ async def git_create_branch(
             print("Branch created successfully")
     """
     try:
+        branch = _validate_branch_name(branch)
+
         # Create policy that allows git checkout
         policy = _create_git_policy()
 
@@ -237,6 +301,12 @@ async def git_create_branch(
             },
         )
 
+    except ValueError as e:
+        return ToolResult(
+            success=False,
+            data=None,
+            error="Invalid branch name: {}".format(e),
+        )
     except Exception as e:
         return ToolResult(
             success=False,
@@ -405,7 +475,8 @@ async def git_push(
     Security:
         - Only allowed when policy permits
         - Uses --force-with-lease instead of --force for safety
-        - Branch and remote names validated by caller
+        - Branch and remote names are validated internally via
+          `_validate_branch_name()` and `_validate_remote_name()`
 
     Example::
 
@@ -414,6 +485,9 @@ async def git_push(
             print("Push successful")
     """
     try:
+        branch = _validate_branch_name(branch)
+        remote = _validate_remote_name(remote)
+
         # Create policy that allows git push
         policy = _create_git_policy()
 
@@ -456,6 +530,12 @@ async def git_push(
             },
         )
 
+    except ValueError as e:
+        return ToolResult(
+            success=False,
+            data=None,
+            error="Invalid git argument: {}".format(e),
+        )
     except Exception as e:
         return ToolResult(
             success=False,
@@ -468,25 +548,21 @@ def _create_git_policy() -> SandboxPolicy:
     """Create a SandboxPolicy configured for git operations.
 
     Returns:
-        SandboxPolicy with git command allowlist.
+        SandboxPolicy with git command allowlist and banned dangerous flags.
     """
-    # Allow git executable
-    allowed_executables = {"git", "git.exe"}
-
-    # Allow specific git command patterns
-    allowed_argv_prefixes = [
-        ["git", "status", "--porcelain"],
-        ["git", "diff"],
-        ["git", "diff", "--staged"],
-        ["git", "checkout", "-b"],
-        ["git", "add", "-A"],
-        ["git", "commit", "-m"],
-        ["git", "push"],
-    ]
-
     return SandboxPolicy(
-        allowed_executables=allowed_executables,
-        allowed_argv_prefixes=allowed_argv_prefixes,
+        allowed_executables={"git", "git.exe"},
+        allowed_argv_prefixes=[
+            ["git", "status", "--porcelain"],
+            ["git", "diff"],
+            ["git", "diff", "--staged"],
+            ["git", "checkout", "-b"],
+            ["git", "add", "-A"],
+            ["git", "commit", "-m"],
+            ["git", "push"],
+        ],
+        # Explicitly ban dangerous push flags (--force-with-lease is intentionally allowed)
+        banned_flags=["--force", "-f", "--no-verify", "--delete", "--mirror", "--all"],
         max_stdout_bytes=5 * 1024 * 1024,  # 5 MB for diffs
         max_stderr_bytes=1024 * 1024,  # 1 MB
         default_timeout_s=60.0,
