@@ -58,6 +58,15 @@ FEEDBACK_SCORE_DELTA_POSITIVE_THRESHOLD = 3.0
 FEEDBACK_SCORE_DELTA_NEGATIVE_THRESHOLD = -3.0
 """score_delta threshold for negative feedback weight update."""
 
+HISTORY_PRIOR_LIMIT = 10
+"""Maximum number of historical entries for prior score calculation."""
+
+WEIGHT_CHANGE_BOOST_STRONG = 2
+"""Increased weight boost when prior and current scores both agree (both successful)."""
+
+WEIGHT_CHANGE_PENALTY_STRONG = -2
+"""Increased penalty when prior and current scores both agree (both failures)."""
+
 
 class StrategyLearningAgent(DevAgentBase):
     """Agent that learns from evaluation outcomes and updates strategy preferences.
@@ -163,8 +172,10 @@ class StrategyLearningAgent(DevAgentBase):
             ):
                 return
 
-            # Apply learning rules
-            weight_change = self._calculate_weight_change(score)
+            # Apply learning rules (with historical prior)
+            weight_change, prior_score, prior_count = (
+                self._calculate_weight_change_with_prior(score, failure_class, selected_playbook)
+            )
             if weight_change == 0:
                 logger.debug(
                     "Score %d is in neutral zone for run_id=%s, no weight update",
@@ -197,8 +208,9 @@ class StrategyLearningAgent(DevAgentBase):
 
             logger.info(
                 "Strategy learning: run_id=%s, failure_class=%s, playbook=%s, "
-                "score=%d, weight %d -> %d",
-                run_id, failure_class, selected_playbook, score, old_weight, new_weight
+                "score=%d, prior_score=%s, prior_count=%d, weight %d -> %d",
+                run_id, failure_class, selected_playbook, score,
+                prior_score, prior_count, old_weight, new_weight
             )
 
             # Log learning event to journal
@@ -216,6 +228,8 @@ class StrategyLearningAgent(DevAgentBase):
                     "old_weight": old_weight,
                     "new_weight": new_weight,
                     "weight_change": weight_change,
+                    "prior_score": prior_score,
+                    "prior_count": prior_count,
                 },
             )
 
@@ -232,6 +246,8 @@ class StrategyLearningAgent(DevAgentBase):
                     "new_weight": new_weight,
                     "weight_change": weight_change,
                     "learning_rule": "v1_simple_threshold",
+                    "prior_score": prior_score,
+                    "prior_count": prior_count,
                 },
             )
 
@@ -578,6 +594,70 @@ class StrategyLearningAgent(DevAgentBase):
             return WEIGHT_CHANGE_PENALTY
         else:
             return 0
+
+    def _calculate_weight_change_with_prior(
+        self,
+        score: int,
+        failure_class: str,
+        selected_playbook: str,
+    ) -> Tuple[int, Optional[float], int]:
+        """Calculate weight_change incorporating historical outcomes.
+
+        Loads historical entries for (failure_class, selected_playbook) from the
+        Strategy Store and computes an average prior score that influences the
+        weight change decision:
+        - prior_score >= WEIGHT_BOOST_THRESHOLD AND score >= WEIGHT_BOOST_THRESHOLD → +2
+        - prior_score <= WEIGHT_PENALTY_THRESHOLD AND score <= WEIGHT_PENALTY_THRESHOLD → -2
+        - Otherwise: normal _calculate_weight_change rule (+1, -1, or 0)
+
+        Falls back to the normal rule if history loading fails.
+
+        Args:
+            score: Current evaluation score (0-100).
+            failure_class: Failure class of the current run.
+            selected_playbook: Playbook chosen for this run.
+
+        Returns:
+            Tuple (weight_change, prior_score_or_None, prior_count).
+        """
+        try:
+            history = self._strategy_store.get_learning_history(
+                failure_class=failure_class,
+                limit=HISTORY_PRIOR_LIMIT,
+            )
+            # Filter to matching playbook
+            relevant = [
+                e for e in history
+                if e.get("selected_playbook") == selected_playbook
+            ]
+            prior_count = len(relevant)
+
+            if prior_count == 0:
+                return self._calculate_weight_change(score), None, 0
+
+            prior_score = sum(e.get("outcome_score", 0) for e in relevant) / prior_count  # type: ignore[assignment]
+
+            if (
+                prior_score >= WEIGHT_BOOST_THRESHOLD  # type: ignore[operator]
+                and score >= WEIGHT_BOOST_THRESHOLD
+            ):
+                return WEIGHT_CHANGE_BOOST_STRONG, prior_score, prior_count
+
+            if (
+                prior_score <= WEIGHT_PENALTY_THRESHOLD  # type: ignore[operator]
+                and score <= WEIGHT_PENALTY_THRESHOLD
+            ):
+                return WEIGHT_CHANGE_PENALTY_STRONG, prior_score, prior_count
+
+            return self._calculate_weight_change(score), prior_score, prior_count
+
+        except Exception as exc:
+            logger.warning(
+                "Failed to load learning history for prior calculation "
+                "(failure_class=%s, playbook=%s): %s — falling back to simple rule",
+                failure_class, selected_playbook, exc,
+            )
+            return self._calculate_weight_change(score), None, 0
 
     def _clamp_weight(self, weight: int) -> int:
         """Clamp weight to valid range.
