@@ -20,12 +20,12 @@ Thread / process safety:
 import json
 import logging
 import os
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
 from genus.memory.event_store import EventStore
+from genus.memory.store_jsonl import sanitize_run_id  # noqa: F401 - re-exported for callers
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_DIR = "var/events"
 _ENV_VAR = "GENUS_EVENTSTORE_DIR"
-
-# Allowed characters after sanitisation – alphanumeric, hyphen, underscore, dot
-_SAFE_PATTERN = re.compile(r"[^a-zA-Z0-9._-]")
-# Reject filenames that would escape the directory
-_TRAVERSAL_PATTERN = re.compile(r"\.\.")
 
 
 # ---------------------------------------------------------------------------
@@ -129,35 +124,6 @@ class EventEnvelope:
         known = {f for f in cls.__dataclass_fields__}
         filtered = {k: v for k, v in data.items() if k in known}
         return cls(**filtered)
-
-
-# ---------------------------------------------------------------------------
-# Filename sanitisation
-# ---------------------------------------------------------------------------
-
-def sanitize_run_id(run_id: str) -> str:
-    """Return a filesystem-safe filename stem for *run_id*.
-
-    - Rejects / cleans path-traversal sequences (``..``).
-    - Replaces any character outside ``[a-zA-Z0-9._-]`` with ``_``.
-    - Ensures the result is non-empty (falls back to ``"unknown"``).
-
-    Args:
-        run_id: The raw run identifier.
-
-    Returns:
-        A sanitised string safe to use as a filename component.
-
-    Raises:
-        ValueError: If *run_id* contains path-traversal sequences
-                    (``..``), to make the attack surface explicit.
-    """
-    if _TRAVERSAL_PATTERN.search(run_id):
-        raise ValueError(
-            f"run_id {run_id!r} contains path-traversal sequences and cannot be used as a filename"
-        )
-    safe = _SAFE_PATTERN.sub("_", run_id)
-    return safe if safe else "unknown"
 
 
 # ---------------------------------------------------------------------------

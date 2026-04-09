@@ -1,8 +1,27 @@
+"""
+DEPRECATED — Legacy memory stub from early development.
+
+This module is not used anywhere in the GENUS codebase and will be
+removed in a future version. Use genus.memory.run_journal.RunJournal
+and genus.memory.store_jsonl.JsonlRunStore instead.
+
+DO NOT import from this module in new code.
+"""
+import warnings
 import json
 import os
 
+warnings.warn(
+    "genus.core.memory.Memory is deprecated and will be removed. "
+    "Use genus.memory.run_journal.RunJournal instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 
 class Memory:
+    """Deprecated legacy memory class. Use RunJournal instead."""
+
     FILE = "memory.json"
 
     @classmethod
