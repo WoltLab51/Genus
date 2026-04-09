@@ -1,51 +1,47 @@
 """
 DevLoop Orchestrator
 
-Coordinates autonomous dev-loop execution by publishing ``*.requested``
-events and awaiting ``*.completed`` or ``*.failed`` responses with
-deterministic correlation via ``phase_id``.
+Coordinates autonomous dev-loop execution by sequencing PhaseRunners
+and applying loop-level policies (Ask/Stop, max iterations).
 
-**This orchestrator now uses real await logic with timeout handling.**
-Builder and Reviewer agents must respond on the appropriate topics with
-matching ``run_id`` (in metadata) and ``phase_id`` (in payload).
+Each phase is handled by a dedicated PhaseRunner in genus.dev.phase_runners.
+Shared state is passed via RunContext from genus.dev.run_context.
 
 Usage::
 
-    orchestrator = DevLoopOrchestrator(bus, timeout_s=30.0)
+    orchestrator = DevLoopOrchestrator(bus, run_journal=journal, timeout_s=30.0)
     await orchestrator.run(run_id, goal="implement feature X")
 
 Typical flow::
 
     dev.loop.started
-      └─► dev.plan.requested (with phase_id)
-            └─► await dev.plan.completed (matching phase_id)
-                  └─► dev.implement.requested (with phase_id)
-                        └─► await dev.implement.completed (matching phase_id)
-                              └─► dev.test.requested (with phase_id)
-                                    └─► await dev.test.completed (matching phase_id)
-                                          └─► dev.review.requested (with phase_id)
-                                                └─► await dev.review.completed (matching phase_id)
-                                                      └─► [ask user?]
-                                                            └─► dev.fix.requested (if fixes needed)
-                                                                  └─► await dev.fix.completed
-                                                                        └─► dev.loop.completed
+      └─► PlanPhaseRunner   → dev.plan.requested / completed
+            └─► ImplPhaseRunner  → dev.implement.requested / completed
+                  └─► [TestPhaseRunner → FixPhaseRunner]* (max_iterations)
+                        └─► ReviewPhaseRunner → dev.review.requested / completed
+                              └─► Ask/Stop policy
+                                    └─► dev.loop.completed / dev.loop.failed
 
 If any phase fails or times out, the orchestrator publishes ``dev.loop.failed``
 and terminates.
 """
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from genus.communication.message_bus import MessageBus
-from genus.dev import events, topics
-from genus.dev.policy import should_ask_user
-from genus.dev.runtime import (
-    listen_for_dev_response,
-    DevResponseFailedError,
-    DevResponseTimeoutError,
+from genus.dev import events
+from genus.dev.phase_runners import (
+    FixPhaseRunner,
+    ImplPhaseRunner,
+    PlanPhaseRunner,
+    ReviewPhaseRunner,
+    TestPhaseRunner,
+    _derive_recommendations,  # re-exported for backwards compatibility
 )
+from genus.dev.policy import should_ask_user
+from genus.dev.run_context import PhaseTimeouts, RunContext
+from genus.dev.runtime import DevResponseFailedError, DevResponseTimeoutError
 from genus.memory.run_journal import RunJournal
 
 if TYPE_CHECKING:
@@ -54,56 +50,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _derive_recommendations(test_report: dict) -> list:
-    """Derive strategy recommendations from a test report.
-
-    Args:
-        test_report: Test phase report dict (may include ``failing_tests``,
-                     ``timed_out``, etc.).
-
-    Returns:
-        List of strategy recommendation strings.
-    """
-    if test_report.get("failing_tests"):
-        return ["target_failing_test_first"]
-    if test_report.get("timed_out"):
-        return ["increase_timeout_once"]
-    return []
-
-
 class DevLoopOrchestrator:
-    """Orchestrator that coordinates dev-loop phases with real await logic.
+    """Orchestrator that sequences dev-loop phases via PhaseRunners.
 
-    Publishes ``*.requested`` events for each phase and awaits responses
-    using :func:`~genus.dev.runtime.await_dev_response`. Each phase is
-    correlated by a unique ``phase_id`` to ensure deterministic matching.
-
-    The public entrypoint is the async :meth:`run` coroutine.  There is no
-    synchronous wrapper: callers must ``await`` this method inside their own
-    event loop.
+    Each phase is handled by a dedicated PhaseRunner. The orchestrator is
+    responsible only for sequencing, loop control, and error routing.
 
     Args:
-        bus:                   The shared :class:`~genus.communication.message_bus.MessageBus`
-                               instance used to publish and subscribe.
+        bus:                   Shared :class:`~genus.communication.message_bus.MessageBus` instance.
         sender_id:             Identifier of this orchestrator (included in every message).
-        timeout_s:             Default timeout in seconds for awaiting phase responses.
+        timeout_s:             Default fallback timeout in seconds for all phases.
                                Acts as fallback for any per-phase timeout not set explicitly.
         max_iterations:        Maximum number of fix iterations if tests fail (default: 3).
         commit_each_iteration: Whether to commit after each fix iteration (default: True).
         run_journal:           Required :class:`~genus.memory.run_journal.RunJournal` instance.
                                All phase events and artifacts are written here.
-                               This is the single source of truth for this run.
         strategy_selector:     Optional :class:`~genus.strategy.selector.StrategySelector`
-                               instance. When provided, ``select_strategy()`` is called
-                               before each fix iteration and the decision is embedded in
-                               the ``dev.fix.requested`` payload.  When ``None`` (default)
-                               the orchestrator behaves exactly as before (backwards-
-                               compatible).
-        plan_timeout_s:        Timeout for the plan phase. Defaults to ``timeout_s``.
-        implement_timeout_s:   Timeout for the implement phase. Defaults to ``timeout_s``.
-        test_timeout_s:        Timeout for the test phase. Defaults to ``timeout_s``.
-        fix_timeout_s:         Timeout for the fix phase. Defaults to ``timeout_s``.
-        review_timeout_s:      Timeout for the review phase. Defaults to ``timeout_s``.
+                               instance for fix-phase strategy selection.
+        plan_timeout_s:        Override timeout for the plan phase.
+        implement_timeout_s:   Override timeout for the implement phase.
+        test_timeout_s:        Override timeout for the test phase.
+        fix_timeout_s:         Override timeout for the fix phase.
+        review_timeout_s:      Override timeout for the review phase.
     """
 
     def __init__(
@@ -136,6 +104,74 @@ class DevLoopOrchestrator:
         self._review_timeout_s = review_timeout_s if review_timeout_s is not None else timeout_s
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_context(self, run_id: str, goal: str) -> RunContext:
+        """Build the RunContext for this run, including episodic context.
+
+        Args:
+            run_id: Unique run identifier.
+            goal:   Human-readable objective.
+
+        Returns:
+            A fully populated :class:`~genus.dev.run_context.RunContext`.
+        """
+        timeouts = PhaseTimeouts(
+            plan=self._plan_timeout_s,
+            implement=self._implement_timeout_s,
+            test=self._test_timeout_s,
+            fix=self._fix_timeout_s,
+            review=self._review_timeout_s,
+        )
+
+        episodic_context = None
+        if hasattr(self._run_journal, "_store"):
+            try:
+                from genus.memory.context_builder import build_episodic_context
+                from genus.memory.query import query_runs
+
+                store = self._run_journal._store
+                header = self._run_journal.get_header()
+                repo_id = header.repo_id if header else None
+
+                past_headers = query_runs(store, repo_id=repo_id, limit=10)
+                past_run_ids = [h.run_id for h in past_headers if h.run_id != run_id]
+
+                if past_run_ids:
+                    episodic_context = build_episodic_context(
+                        store, run_ids=past_run_ids, max_runs=3
+                    )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("episodic context load failed: %s", exc)
+
+        return RunContext(
+            run_id=run_id,
+            goal=goal,
+            bus=self._bus,
+            journal=self._run_journal,
+            sender_id=self._sender_id,
+            timeouts=timeouts,
+            strategy_selector=self._strategy_selector,
+            episodic_context=episodic_context,
+        )
+
+    def _journal_event(self, ctx: RunContext, phase: str, event_type: str, summary: str, **kwargs: Any) -> None:
+        """Write a journal event, swallowing errors gracefully.
+
+        Args:
+            ctx:        The shared RunContext.
+            phase:      Phase name (e.g. "loop", "test").
+            event_type: Event type string.
+            summary:    Human-readable summary.
+            **kwargs:   Additional keyword arguments forwarded to log_event.
+        """
+        try:
+            ctx.journal.log_event(phase=phase, event_type=event_type, summary=summary, **kwargs)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("journal write failed (%s/%s): %s", phase, event_type, exc)
+
+    # ------------------------------------------------------------------
     # Public async entrypoint
     # ------------------------------------------------------------------
 
@@ -147,323 +183,80 @@ class DevLoopOrchestrator:
         constraints: Optional[List[str]] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Execute the full dev-loop with real await logic.
+        """Execute the full dev-loop.
 
-        Publishes ``*.requested`` events and awaits responses for each phase.
-        Uses ``phase_id`` correlation to match request/response pairs.
-        Applies the Ask/Stop policy after review and terminates if necessary.
+        Sequences PlanPhaseRunner → ImplPhaseRunner → [TestPhaseRunner →
+        FixPhaseRunner]* → ReviewPhaseRunner, then applies the Ask/Stop policy.
 
         Args:
             run_id:       Unique run identifier for this loop.
             goal:         Human-readable goal/objective.
             requirements: Optional list of acceptance requirements.
             constraints:  Optional list of constraints.
-            context:      Optional context dict (e.g. repo, branch); always
-                          normalised to an empty dict if ``None``.
+            context:      Optional context dict (e.g. repo, branch).
 
         Raises:
-            DevResponseFailedError: If any phase fails.
+            DevResponseFailedError:  If any phase fails.
             DevResponseTimeoutError: If any phase times out.
         """
+        ctx = self._build_context(run_id, goal)
+
         try:
-            # Publish loop started
+            # -- Loop started --
             await self._bus.publish(
                 events.dev_loop_started_message(
                     run_id, self._sender_id, goal, context=context
                 )
             )
+            self._journal_event(
+                ctx, "loop", "started",
+                summary=f"Dev loop started: {goal}",
+                data={"goal": goal, "context": context or {}},
+            )
+
+            # -- Plan --
             try:
-                self._run_journal.log_event(
-                    phase="loop",
-                    event_type="started",
-                    summary=f"Dev loop started: {goal}",
-                    data={"goal": goal, "context": context or {}},
+                plan = await PlanPhaseRunner().run(
+                    ctx, requirements=requirements, constraints=constraints
                 )
-            except Exception as exc:  # pragma: no cover
-                logger.warning("journal write failed: %s", exc)
-
-            # -- Planning phase --
-            # Episodic context injection (optional — only if store is available)
-            episodic_context: Optional[List[Dict[str, Any]]] = None
-            if hasattr(self._run_journal, '_store'):
-                try:
-                    from genus.memory.query import query_runs
-                    from genus.memory.context_builder import build_episodic_context
-
-                    store = self._run_journal._store
-                    header = self._run_journal.get_header()
-                    repo_id = header.repo_id if header else None
-
-                    past_headers = query_runs(
-                        store,
-                        repo_id=repo_id,
-                        limit=10,
-                    )
-                    past_run_ids = [h.run_id for h in past_headers if h.run_id != run_id]
-
-                    if past_run_ids:
-                        episodic_context = build_episodic_context(
-                            store,
-                            run_ids=past_run_ids,
-                            max_runs=3,
-                        )
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("episodic context load failed: %s", exc)
-
-            plan_payload: Optional[Dict[str, Any]] = None
-            if episodic_context:
-                plan_payload = {"episodic_context": episodic_context}
-
-            plan_req = events.dev_plan_requested_message(
-                run_id,
-                self._sender_id,
-                requirements=requirements,
-                constraints=constraints,
-                payload=plan_payload,
-            )
-            plan_phase_id = plan_req.payload["phase_id"]
-
-            listener = listen_for_dev_response(
-                self._bus,
-                run_id=run_id,
-                phase_id=plan_phase_id,
-                completed_topic=topics.DEV_PLAN_COMPLETED,
-                failed_topic=topics.DEV_PLAN_FAILED,
-            )
-            try:
-                await self._bus.publish(plan_req)
-                plan_resp = await listener.wait(self._plan_timeout_s)
-            finally:
-                listener.close()
-
-            plan = plan_resp.payload.get("plan")
-            if not plan:
-                plan = {}
-            if not plan:
-                reason = "Planning phase returned an empty plan — cannot proceed."
+            except ValueError as exc:
+                # Empty plan — PlanPhaseRunner raises ValueError
+                reason = str(exc)
                 await self._bus.publish(
                     events.dev_loop_failed_message(run_id, self._sender_id, reason)
                 )
-                try:
-                    self._run_journal.log_event(
-                        phase="loop",
-                        event_type="failed",
-                        summary=reason,
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("journal write failed: %s", exc)
+                self._journal_event(ctx, "loop", "failed", summary=reason)
                 return
-            try:
-                self._run_journal.save_artifact(
-                    phase="plan",
-                    artifact_type="plan",
-                    payload=plan,
-                    phase_id=plan_phase_id,
-                )
-            except Exception as exc:  # pragma: no cover
-                logger.warning("journal write failed: %s", exc)
 
-            # -- Implementation phase (iteration 0) --
+            # -- Implement --
+            await ImplPhaseRunner().run(ctx, plan=plan, iteration=0)
+
+            # -- Test → Fix loop --
             iteration = 0
-            impl_req = events.dev_implement_requested_message(
-                run_id, self._sender_id, plan,
-                payload={"iteration": iteration}
-            )
-            impl_phase_id = impl_req.payload["phase_id"]
-
-            listener = listen_for_dev_response(
-                self._bus,
-                run_id=run_id,
-                phase_id=impl_phase_id,
-                completed_topic=topics.DEV_IMPLEMENT_COMPLETED,
-                failed_topic=topics.DEV_IMPLEMENT_FAILED,
-            )
-            try:
-                await self._bus.publish(impl_req)
-                impl_resp = await listener.wait(self._implement_timeout_s)
-            finally:
-                listener.close()
-
-            # -- Iterative test-fix loop --
             while iteration <= self._max_iterations:
-                # -- Testing phase --
-                test_req = events.dev_test_requested_message(
-                    run_id, self._sender_id,
-                    payload={"iteration": iteration}
-                )
-                test_phase_id = test_req.payload["phase_id"]
-
-                listener = listen_for_dev_response(
-                    self._bus,
-                    run_id=run_id,
-                    phase_id=test_phase_id,
-                    completed_topic=topics.DEV_TEST_COMPLETED,
-                    failed_topic=topics.DEV_TEST_FAILED,
-                )
-                try:
-                    await self._bus.publish(test_req)
-                    test_resp = await listener.wait(self._test_timeout_s)
-                finally:
-                    listener.close()
-
-                # Check if tests passed
-                test_report = test_resp.payload.get("report", {})
-
-                # Persist test_report as journal artifact
-                try:
-                    self._run_journal.save_artifact(
-                        phase="test",
-                        artifact_type="test_report",
-                        payload=test_report,
-                        phase_id=test_phase_id,
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("journal write failed (test_report): %s", exc)
-
-                tests_passed = (
-                    test_report.get("failed", 0) == 0
-                    and len(test_report.get("failing_tests", [])) == 0
-                )
+                test_report, tests_passed = await TestPhaseRunner().run(ctx, iteration=iteration)
 
                 if tests_passed:
-                    # Tests passed, continue to review
                     break
 
-                # Tests failed - log to journal
-                try:
-                    self._run_journal.log_event(
-                        phase="test",
-                        event_type="test_failed",
-                        summary=test_report.get("summary", "Tests failed"),
-                        phase_id=test_phase_id,
-                        data={"report": test_report, "iteration": iteration},
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("journal write failed: %s", exc)
-
-                # Tests failed - check if we can iterate
                 if iteration >= self._max_iterations:
-                    # Max iterations reached
-                    reason = f"Max iterations ({self._max_iterations}) reached. Tests still failing: {test_report.get('summary', 'unknown')}"
-                    await self._bus.publish(
-                        events.dev_loop_failed_message(
-                            run_id,
-                            self._sender_id,
-                            reason,
-                        )
+                    reason = (
+                        f"Max iterations ({self._max_iterations}) reached. "
+                        f"Tests still failing: {test_report.get('summary', 'unknown')}"
                     )
-                    try:
-                        self._run_journal.log_event(
-                            phase="loop",
-                            event_type="failed",
-                            summary=reason,
-                        )
-                    except Exception as exc:  # pragma: no cover
-                        logger.warning("journal write failed: %s", exc)
+                    await self._bus.publish(
+                        events.dev_loop_failed_message(run_id, self._sender_id, reason)
+                    )
+                    self._journal_event(ctx, "loop", "failed", summary=reason)
                     return
 
-                # -- Fix phase --
                 iteration += 1
-                findings = [
-                    {
-                        "type": "test_failure",
-                        "message": test_report.get("summary", "Tests failed"),
-                        "failing_tests": test_report.get("failing_tests", []),
-                        "report": test_report,
-                    }
-                ]
+                await FixPhaseRunner().run(ctx, test_report=test_report, iteration=iteration)
 
-                # Strategy selection (optional — only when selector is provided)
-                strategy_payload: Dict[str, Any] = {}
-                if self._strategy_selector is not None:
-                    failure_class = test_report.get("failure_class")
-                    if failure_class is None:
-                        failure_class = "test_failure"
+            # -- Review --
+            review = await ReviewPhaseRunner().run(ctx)
 
-                    evaluation_artifact = {
-                        "failure_class": failure_class,
-                        "strategy_recommendations": _derive_recommendations(test_report),
-                        "score": 0,
-                    }
-
-                    strategy_decision = self._strategy_selector.select_strategy(
-                        run_id=run_id,
-                        phase="fix",
-                        iteration=iteration,
-                        evaluation_artifact=evaluation_artifact,
-                    )
-                    strategy_payload = {
-                        "strategy": strategy_decision.selected_playbook,
-                        "strategy_reason": strategy_decision.reason,
-                    }
-
-                    try:
-                        from genus.strategy.journal_integration import log_strategy_decision
-                        log_strategy_decision(self._run_journal, strategy_decision)
-                    except Exception as exc:  # pragma: no cover
-                        logger.warning("strategy decision could not be logged to journal: %s", exc)
-
-                fix_req = events.dev_fix_requested_message(
-                    run_id, self._sender_id, findings,
-                    payload={"iteration": iteration, **strategy_payload}
-                )
-                fix_phase_id = fix_req.payload["phase_id"]
-
-                listener = listen_for_dev_response(
-                    self._bus,
-                    run_id=run_id,
-                    phase_id=fix_phase_id,
-                    completed_topic=topics.DEV_FIX_COMPLETED,
-                    failed_topic=topics.DEV_FIX_FAILED,
-                )
-                try:
-                    await self._bus.publish(fix_req)
-                    fix_resp = await listener.wait(self._fix_timeout_s)
-                finally:
-                    listener.close()
-
-                try:
-                    self._run_journal.log_event(
-                        phase="fix",
-                        event_type="fix_completed",
-                        summary="Fix iteration completed",
-                        phase_id=fix_phase_id,
-                        data={"iteration": iteration},
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("journal write failed: %s", exc)
-
-                # Fix completed, loop back to test
-
-            # -- Review phase --
-            review_req = events.dev_review_requested_message(run_id, self._sender_id)
-            review_phase_id = review_req.payload["phase_id"]
-
-            listener = listen_for_dev_response(
-                self._bus,
-                run_id=run_id,
-                phase_id=review_phase_id,
-                completed_topic=topics.DEV_REVIEW_COMPLETED,
-                failed_topic=topics.DEV_REVIEW_FAILED,
-            )
-            try:
-                await self._bus.publish(review_req)
-                review_resp = await listener.wait(self._review_timeout_s)
-            finally:
-                listener.close()
-
-            review = review_resp.payload["review"]
-            try:
-                self._run_journal.save_artifact(
-                    phase="review",
-                    artifact_type="review",
-                    payload=review,
-                    phase_id=review_phase_id,
-                )
-            except Exception as exc:  # pragma: no cover
-                logger.warning("journal write failed: %s", exc)
-
-            # -- Ask/Stop policy gate --
+            # -- Ask/Stop policy --
             ask, reason = should_ask_user(
                 findings=review.get("findings", []),
                 risks=plan.get("risks", []),
@@ -473,49 +266,26 @@ class DevLoopOrchestrator:
             if ask:
                 fail_reason = f"Awaiting operator: {reason}"
                 await self._bus.publish(
-                    events.dev_loop_failed_message(
-                        run_id, self._sender_id, fail_reason
-                    )
+                    events.dev_loop_failed_message(run_id, self._sender_id, fail_reason)
                 )
-                try:
-                    self._run_journal.log_event(
-                        phase="loop",
-                        event_type="failed",
-                        summary=fail_reason,
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("journal write failed: %s", exc)
+                self._journal_event(ctx, "loop", "failed", summary=fail_reason)
                 return
 
-            # -- Loop completed --
+            # -- Completed --
             await self._bus.publish(
                 events.dev_loop_completed_message(
-                    run_id,
-                    self._sender_id,
-                    summary="Dev loop completed successfully.",
+                    run_id, self._sender_id, summary="Dev loop completed successfully."
                 )
             )
-            try:
-                self._run_journal.log_event(
-                    phase="loop",
-                    event_type="completed",
-                    summary="Dev loop completed successfully.",
-                )
-            except Exception as exc:  # pragma: no cover
-                logger.warning("journal write failed: %s", exc)
+            self._journal_event(ctx, "loop", "completed", summary="Dev loop completed successfully.")
 
         except (DevResponseFailedError, DevResponseTimeoutError) as exc:
-            # Any phase failure or timeout -> publish loop failed
             await self._bus.publish(
-                events.dev_loop_failed_message(
-                    run_id, self._sender_id, str(exc)
-                )
+                events.dev_loop_failed_message(run_id, self._sender_id, str(exc))
             )
             try:
-                self._run_journal.log_event(
-                    phase="loop",
-                    event_type="failed",
-                    summary=str(exc),
+                ctx.journal.log_event(
+                    phase="loop", event_type="failed", summary=str(exc)
                 )
             except Exception as journal_exc:  # pragma: no cover
                 logger.error(
