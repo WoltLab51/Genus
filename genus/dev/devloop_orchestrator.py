@@ -210,12 +210,16 @@ class DevLoopOrchestrator:
                 except Exception as exc:  # pragma: no cover
                     logger.warning("episodic context load failed: %s", exc)
 
+            plan_payload: Optional[Dict[str, Any]] = None
+            if episodic_context:
+                plan_payload = {"episodic_context": episodic_context}
+
             plan_req = events.dev_plan_requested_message(
                 run_id,
                 self._sender_id,
                 requirements=requirements,
                 constraints=constraints,
-                payload={"episodic_context": episodic_context} if episodic_context else None,
+                payload=plan_payload,
             )
             plan_phase_id = plan_req.payload["phase_id"]
 
@@ -232,7 +236,9 @@ class DevLoopOrchestrator:
             finally:
                 listener.close()
 
-            plan = plan_resp.payload.get("plan") or {}
+            plan = plan_resp.payload.get("plan")
+            if not plan:
+                plan = {}
             if not plan:
                 reason = "Planning phase returned an empty plan — cannot proceed."
                 await self._bus.publish(
