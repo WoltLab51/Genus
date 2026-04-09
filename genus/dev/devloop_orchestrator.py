@@ -87,6 +87,7 @@ class DevLoopOrchestrator:
                                instance used to publish and subscribe.
         sender_id:             Identifier of this orchestrator (included in every message).
         timeout_s:             Default timeout in seconds for awaiting phase responses.
+                               Acts as fallback for any per-phase timeout not set explicitly.
         max_iterations:        Maximum number of fix iterations if tests fail (default: 3).
         commit_each_iteration: Whether to commit after each fix iteration (default: True).
         run_journal:           Required :class:`~genus.memory.run_journal.RunJournal` instance.
@@ -98,6 +99,11 @@ class DevLoopOrchestrator:
                                the ``dev.fix.requested`` payload.  When ``None`` (default)
                                the orchestrator behaves exactly as before (backwards-
                                compatible).
+        plan_timeout_s:        Timeout for the plan phase. Defaults to ``timeout_s``.
+        implement_timeout_s:   Timeout for the implement phase. Defaults to ``timeout_s``.
+        test_timeout_s:        Timeout for the test phase. Defaults to ``timeout_s``.
+        fix_timeout_s:         Timeout for the fix phase. Defaults to ``timeout_s``.
+        review_timeout_s:      Timeout for the review phase. Defaults to ``timeout_s``.
     """
 
     def __init__(
@@ -110,6 +116,11 @@ class DevLoopOrchestrator:
         *,
         run_journal: RunJournal,
         strategy_selector: "Optional[StrategySelector]" = None,
+        plan_timeout_s: Optional[float] = None,
+        implement_timeout_s: Optional[float] = None,
+        test_timeout_s: Optional[float] = None,
+        fix_timeout_s: Optional[float] = None,
+        review_timeout_s: Optional[float] = None,
     ) -> None:
         self._bus = bus
         self._sender_id = sender_id
@@ -118,6 +129,11 @@ class DevLoopOrchestrator:
         self._commit_each_iteration = commit_each_iteration
         self._strategy_selector = strategy_selector
         self._run_journal = run_journal
+        self._plan_timeout_s = plan_timeout_s if plan_timeout_s is not None else timeout_s
+        self._implement_timeout_s = implement_timeout_s if implement_timeout_s is not None else timeout_s
+        self._test_timeout_s = test_timeout_s if test_timeout_s is not None else timeout_s
+        self._fix_timeout_s = fix_timeout_s if fix_timeout_s is not None else timeout_s
+        self._review_timeout_s = review_timeout_s if review_timeout_s is not None else timeout_s
 
     # ------------------------------------------------------------------
     # Public async entrypoint
@@ -167,11 +183,43 @@ class DevLoopOrchestrator:
                 logger.warning("journal write failed: %s", exc)
 
             # -- Planning phase --
+            # Episodic context injection (optional — only if store is available)
+            episodic_context: Optional[List[Dict[str, Any]]] = None
+            if hasattr(self._run_journal, '_store'):
+                try:
+                    from genus.memory.query import query_runs
+                    from genus.memory.context_builder import build_episodic_context
+
+                    store = self._run_journal._store
+                    header = self._run_journal.get_header()
+                    repo_id = header.repo_id if header else None
+
+                    past_headers = query_runs(
+                        store,
+                        repo_id=repo_id,
+                        limit=10,
+                    )
+                    past_run_ids = [h.run_id for h in past_headers if h.run_id != run_id]
+
+                    if past_run_ids:
+                        episodic_context = build_episodic_context(
+                            store,
+                            run_ids=past_run_ids,
+                            max_runs=3,
+                        )
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("episodic context load failed: %s", exc)
+
+            plan_payload: Optional[Dict[str, Any]] = None
+            if episodic_context:
+                plan_payload = {"episodic_context": episodic_context}
+
             plan_req = events.dev_plan_requested_message(
                 run_id,
                 self._sender_id,
                 requirements=requirements,
                 constraints=constraints,
+                payload=plan_payload,
             )
             plan_phase_id = plan_req.payload["phase_id"]
 
@@ -184,11 +232,27 @@ class DevLoopOrchestrator:
             )
             try:
                 await self._bus.publish(plan_req)
-                plan_resp = await listener.wait(self._timeout_s)
+                plan_resp = await listener.wait(self._plan_timeout_s)
             finally:
                 listener.close()
 
-            plan = plan_resp.payload["plan"]
+            plan = plan_resp.payload.get("plan")
+            if not plan:
+                plan = {}
+            if not plan:
+                reason = "Planning phase returned an empty plan — cannot proceed."
+                await self._bus.publish(
+                    events.dev_loop_failed_message(run_id, self._sender_id, reason)
+                )
+                try:
+                    self._run_journal.log_event(
+                        phase="loop",
+                        event_type="failed",
+                        summary=reason,
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("journal write failed: %s", exc)
+                return
             try:
                 self._run_journal.save_artifact(
                     phase="plan",
@@ -216,7 +280,7 @@ class DevLoopOrchestrator:
             )
             try:
                 await self._bus.publish(impl_req)
-                impl_resp = await listener.wait(self._timeout_s)
+                impl_resp = await listener.wait(self._implement_timeout_s)
             finally:
                 listener.close()
 
@@ -238,12 +302,24 @@ class DevLoopOrchestrator:
                 )
                 try:
                     await self._bus.publish(test_req)
-                    test_resp = await listener.wait(self._timeout_s)
+                    test_resp = await listener.wait(self._test_timeout_s)
                 finally:
                     listener.close()
 
                 # Check if tests passed
                 test_report = test_resp.payload.get("report", {})
+
+                # Persist test_report as journal artifact
+                try:
+                    self._run_journal.save_artifact(
+                        phase="test",
+                        artifact_type="test_report",
+                        payload=test_report,
+                        phase_id=test_phase_id,
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("journal write failed (test_report): %s", exc)
+
                 tests_passed = (
                     test_report.get("failed", 0) == 0
                     and len(test_report.get("failing_tests", [])) == 0
@@ -342,7 +418,7 @@ class DevLoopOrchestrator:
                 )
                 try:
                     await self._bus.publish(fix_req)
-                    fix_resp = await listener.wait(self._timeout_s)
+                    fix_resp = await listener.wait(self._fix_timeout_s)
                 finally:
                     listener.close()
 
@@ -372,7 +448,7 @@ class DevLoopOrchestrator:
             )
             try:
                 await self._bus.publish(review_req)
-                review_resp = await listener.wait(self._timeout_s)
+                review_resp = await listener.wait(self._review_timeout_s)
             finally:
                 listener.close()
 
@@ -442,5 +518,7 @@ class DevLoopOrchestrator:
                     summary=str(exc),
                 )
             except Exception as journal_exc:  # pragma: no cover
-                logger.warning("journal write failed: %s", journal_exc)
+                logger.error(
+                    "journal write failed during loop failure handling: %s", journal_exc
+                )
             raise
