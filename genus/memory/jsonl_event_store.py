@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
 from genus.memory.event_store import EventStore
-from genus.memory.store_jsonl import sanitize_run_id  # noqa: F401 — re-exported for callers
+from genus.memory.store_jsonl import sanitize_run_id  # noqa: F401 - re-exported for callers
 
 logger = logging.getLogger(__name__)
 
