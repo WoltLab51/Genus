@@ -115,6 +115,12 @@ class StrategyRecommendation:
     ASK_OPERATOR_WITH_CONTEXT = "ask_operator_with_context"
     """Situation requires human intervention with full context."""
 
+    VERIFY_SANDBOX_TOOL_USAGE = "verify_sandbox_tool_usage"
+    """Fix-Phase hat sandbox_run selten/nie genutzt — Sandbox-Nutzung prüfen."""
+
+    REVIEW_TOOL_SELECTION = "review_tool_selection"
+    """Unerwartetes Tool-Muster in Fix-Phase erkannt — Tool-Auswahl überprüfen."""
+
     @classmethod
     def all_values(cls):
         """Return all strategy recommendation values."""
@@ -124,4 +130,6 @@ class StrategyRecommendation:
             cls.INCREASE_TIMEOUT_ONCE,
             cls.REVERT_LAST_COMMIT_AND_RETRY,
             cls.ASK_OPERATOR_WITH_CONTEXT,
+            cls.VERIFY_SANDBOX_TOOL_USAGE,
+            cls.REVIEW_TOOL_SELECTION,
         ]

@@ -105,6 +105,7 @@ class RunEvaluator:
             root_cause_hint=root_cause_hint,
             iterations_used=inp.iterations_used,
             final_status=inp.final_status,
+            tool_context=inp.tool_context,
         )
 
         # Build evidence from test reports
@@ -210,6 +211,7 @@ class RunEvaluator:
         root_cause_hint: Optional[str],
         iterations_used: int,
         final_status: str,
+        tool_context: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """Generate human-readable and machine-readable recommendations.
 
@@ -218,6 +220,7 @@ class RunEvaluator:
             root_cause_hint: The detected root cause hint.
             iterations_used: Number of iterations used.
             final_status: Final status of the run.
+            tool_context: Optional tool usage context from EvaluationInput.
 
         Returns:
             Tuple of (recommendations, strategy_recommendations).
@@ -236,58 +239,136 @@ class RunEvaluator:
                     "Consider analyzing why multiple iterations were needed."
                 )
 
-            return recommendations, strategy_recommendations
+        else:
+            # Recommendations for failed runs
+            if failure_class == FailureClass.TEST_FAILURE:
+                if root_cause_hint == RootCauseHint.ASSERTION_ERROR:
+                    recommendations.append(
+                        "Focus on fixing the specific failing assertion(s)."
+                    )
+                    strategy_recommendations.append(
+                        StrategyRecommendation.TARGET_FAILING_TEST_FIRST
+                    )
+                    strategy_recommendations.append(
+                        StrategyRecommendation.MINIMIZE_CHANGESET
+                    )
+                elif root_cause_hint == RootCauseHint.IMPORT_ERROR:
+                    recommendations.append(
+                        "Check for missing dependencies or incorrect imports."
+                    )
+                elif root_cause_hint == RootCauseHint.SYNTAX_ERROR:
+                    recommendations.append("Fix syntax errors before proceeding.")
+                else:
+                    recommendations.append("Review test output to identify root cause.")
+                    strategy_recommendations.append(
+                        StrategyRecommendation.TARGET_FAILING_TEST_FIRST
+                    )
 
-        # Recommendations for failed runs
-        if failure_class == FailureClass.TEST_FAILURE:
-            if root_cause_hint == RootCauseHint.ASSERTION_ERROR:
+            elif failure_class == FailureClass.TIMEOUT:
                 recommendations.append(
-                    "Focus on fixing the specific failing assertion(s)."
+                    "Execution timed out. Consider increasing timeout or optimizing code."
                 )
                 strategy_recommendations.append(
-                    StrategyRecommendation.TARGET_FAILING_TEST_FIRST
+                    StrategyRecommendation.INCREASE_TIMEOUT_ONCE
                 )
-                strategy_recommendations.append(
-                    StrategyRecommendation.MINIMIZE_CHANGESET
-                )
-            elif root_cause_hint == RootCauseHint.IMPORT_ERROR:
+
+            elif failure_class == FailureClass.GITHUB_CHECKS_FAILURE:
+                recommendations.append("Review GitHub checks for specific failures.")
+
+            # General recommendation for repeated failures
+            if iterations_used > 3:
                 recommendations.append(
-                    "Check for missing dependencies or incorrect imports."
+                    "Multiple iterations suggest a complex issue. "
+                    "Consider requesting operator assistance."
                 )
-            elif root_cause_hint == RootCauseHint.SYNTAX_ERROR:
-                recommendations.append("Fix syntax errors before proceeding.")
-            else:
-                recommendations.append("Review test output to identify root cause.")
                 strategy_recommendations.append(
-                    StrategyRecommendation.TARGET_FAILING_TEST_FIRST
+                    StrategyRecommendation.ASK_OPERATOR_WITH_CONTEXT
                 )
 
-        elif failure_class == FailureClass.TIMEOUT:
-            recommendations.append(
-                "Execution timed out. Consider increasing timeout or optimizing code."
-            )
-            strategy_recommendations.append(
-                StrategyRecommendation.INCREASE_TIMEOUT_ONCE
-            )
+            # Fallback recommendation
+            if not recommendations:
+                recommendations.append("Review run artifacts for diagnostic information.")
+                strategy_recommendations.append(
+                    StrategyRecommendation.ASK_OPERATOR_WITH_CONTEXT
+                )
 
-        elif failure_class == FailureClass.GITHUB_CHECKS_FAILURE:
-            recommendations.append("Review GitHub checks for specific failures.")
-
-        # General recommendation for repeated failures
-        if iterations_used > 3:
-            recommendations.append(
-                "Multiple iterations suggest a complex issue. "
-                "Consider requesting operator assistance."
-            )
-            strategy_recommendations.append(
-                StrategyRecommendation.ASK_OPERATOR_WITH_CONTEXT
-            )
-
-        # Fallback recommendation
-        if not recommendations:
-            recommendations.append("Review run artifacts for diagnostic information.")
-            strategy_recommendations.append(
-                StrategyRecommendation.ASK_OPERATOR_WITH_CONTEXT
-            )
+        # -- Tool-Context-Analyse (falls vorhanden) --
+        if tool_context is not None:
+            tool_insights = self._analyze_tool_context(tool_context)
+            recommendations.extend(tool_insights["recommendations"])
+            strategy_recommendations.extend(tool_insights["strategy_recommendations"])
 
         return recommendations, strategy_recommendations
+
+    def _analyze_tool_context(
+        self,
+        tool_context: Dict[str, Any],
+    ) -> Dict[str, List[str]]:
+        """Analyse tool usage patterns and derive recommendations.
+
+        Heuristics:
+        - sandbox_run called 0 times in fix phase (but indexed_run_count >= 3)
+          → "verify_sandbox_tool_usage" recommendation
+        - No tools recorded in fix phase at all (top_tools_fix is empty,
+          but indexed_run_count >= 3)
+          → "review_tool_selection" recommendation
+        - sandbox_run calls_in_phase > 0 but < 2 on average per run
+          (calls_in_phase / indexed_run_count < 0.5, indexed_run_count >= 5)
+          → "verify_sandbox_tool_usage" recommendation (low sandbox usage signal)
+
+        Args:
+            tool_context: Dict with "top_tools_fix" and "indexed_run_count".
+
+        Returns:
+            Dict with "recommendations" (List[str]) and
+            "strategy_recommendations" (List[str]).
+        """
+        recommendations = []
+        strategy_recommendations = []
+
+        top_tools_fix = tool_context.get("top_tools_fix", [])
+        indexed_run_count = tool_context.get("indexed_run_count", 0)
+
+        # Only apply heuristics if we have enough history
+        if indexed_run_count < 3:
+            return {"recommendations": recommendations, "strategy_recommendations": strategy_recommendations}
+
+        tool_names_in_fix = {t["tool_name"] for t in top_tools_fix}
+
+        # Heuristic 1: No tools at all in fix phase
+        if not top_tools_fix:
+            recommendations.append(
+                "No tools were recorded in the fix phase across recent runs. "
+                "Review tool selection logic."
+            )
+            strategy_recommendations.append(StrategyRecommendation.REVIEW_TOOL_SELECTION)
+            return {"recommendations": recommendations, "strategy_recommendations": strategy_recommendations}
+
+        # Heuristic 2: sandbox_run completely absent in fix phase
+        if "sandbox_run" not in tool_names_in_fix:
+            recommendations.append(
+                "sandbox_run was not used in the fix phase across recent runs. "
+                "Verify that the Sandbox is being utilized during fix iterations."
+            )
+            strategy_recommendations.append(StrategyRecommendation.VERIFY_SANDBOX_TOOL_USAGE)
+            return {"recommendations": recommendations, "strategy_recommendations": strategy_recommendations}
+
+        # Heuristic 3: sandbox_run present but low usage rate
+        if indexed_run_count >= 5:
+            sandbox_stat = next(
+                (t for t in top_tools_fix if t["tool_name"] == "sandbox_run"), None
+            )
+            if sandbox_stat is not None:
+                usage_rate = sandbox_stat["calls_in_phase"] / indexed_run_count
+                if usage_rate < 0.5:
+                    recommendations.append(
+                        f"sandbox_run usage rate in fix phase is low "
+                        f"({sandbox_stat['calls_in_phase']} calls across "
+                        f"{indexed_run_count} runs). "
+                        "Verify Sandbox is being used effectively."
+                    )
+                    strategy_recommendations.append(
+                        StrategyRecommendation.VERIFY_SANDBOX_TOOL_USAGE
+                    )
+
+        return {"recommendations": recommendations, "strategy_recommendations": strategy_recommendations}
