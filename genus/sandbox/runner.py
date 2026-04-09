@@ -7,9 +7,12 @@ Executes commands in an isolated environment with security restrictions.
 import asyncio
 import time
 import os
-import resource
 import sys
 from typing import Optional
+
+# resource module is Unix-only; import conditionally to allow Windows usage
+if sys.platform != "win32":
+    import resource
 
 from genus.workspace.workspace import RunWorkspace
 from genus.workspace.paths import ensure_within

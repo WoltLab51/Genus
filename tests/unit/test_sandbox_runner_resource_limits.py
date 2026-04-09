@@ -85,5 +85,5 @@ def test_default_nproc_limit_is_reasonable():
 
 
 def test_default_fsize_limit_is_reasonable():
-    assert _DEFAULT_MAX_FSIZE_BYTES >= 10 * 1024 * 1024   # at least 10 MB
+    assert _DEFAULT_MAX_FSIZE_BYTES >= 10 * 1024 * 1024  # at least 10 MB
     assert _DEFAULT_MAX_FSIZE_BYTES <= 1024 * 1024 * 1024  # at most 1 GB
