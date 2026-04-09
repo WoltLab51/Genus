@@ -4,7 +4,7 @@ Sandbox Security Policy
 Implements deny-by-default security policy for sandbox command execution.
 """
 
-from typing import Set, List
+from typing import Set, List, Optional
 from genus.sandbox.models import SandboxCommand, SandboxPolicyError
 
 
@@ -33,6 +33,7 @@ class SandboxPolicy:
         max_stderr_bytes: int = 1024 * 1024,  # 1 MB
         default_timeout_s: float = 300.0,  # 5 minutes
         max_timeout_s: float = 600.0,  # 10 minutes
+        banned_flags: Optional[List[str]] = None,
     ):
         """Initialize sandbox policy.
 
@@ -48,6 +49,10 @@ class SandboxPolicy:
             max_stderr_bytes: Maximum stderr size before truncation.
             default_timeout_s: Default timeout in seconds.
             max_timeout_s: Maximum allowed timeout in seconds.
+            banned_flags: Flags that must never appear in argv, regardless of
+                         prefix matching. Default list bans dangerous push flags
+                         (--force, -f, --no-verify, --delete, --mirror, --all,
+                         --tags). Pass an empty list to disable all flag banning.
         """
         # Default allowed executables for Python/pytest and git
         if allowed_executables is None:
@@ -79,6 +84,18 @@ class SandboxPolicy:
         if allowed_env_keys is None:
             allowed_env_keys = set()
 
+        # Default banned flags: dangerous push/destructive flags
+        if banned_flags is None:
+            banned_flags = [
+                "--force",      # dangerous force push
+                "-f",           # short form of --force
+                "--no-verify",  # bypasses pre-push hooks
+                "--delete",     # deletes remote branches
+                "--mirror",     # mirrors entire repository
+                "--all",        # pushes all branches
+                "--tags",       # pushes all tags uncontrolled
+            ]
+
         self.allowed_executables = set(allowed_executables)
         self.allowed_argv_prefixes = allowed_argv_prefixes
         self.allowed_env_keys = set(allowed_env_keys)
@@ -86,6 +103,7 @@ class SandboxPolicy:
         self.max_stderr_bytes = max_stderr_bytes
         self.default_timeout_s = default_timeout_s
         self.max_timeout_s = max_timeout_s
+        self.banned_flags = list(banned_flags)
 
     def validate(self, command: SandboxCommand) -> None:
         """Validate a command against this policy.
@@ -122,6 +140,15 @@ class SandboxPolicy:
                         "Dangerous pattern '{}' found in argument '{}'".format(
                             pattern, arg
                         )
+                    )
+
+        # Check for banned flags (defense in depth for push/destructive safety)
+        if self.banned_flags:
+            for arg in command.argv:
+                if arg in self.banned_flags:
+                    raise SandboxPolicyError(
+                        "Banned flag '{}' found in command. "
+                        "Banned flags: {}".format(arg, self.banned_flags)
                     )
 
         # Check if argv matches any allowed prefix
