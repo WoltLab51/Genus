@@ -54,18 +54,37 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: Dict[str, ToolSpec] = {}
 
-    def register(self, tool: ToolSpec, *, replace: bool = False) -> None:
+    def register(
+        self,
+        tool: ToolSpec,
+        *,
+        replace: bool = False,
+        actor_role: Optional[str] = None,
+    ) -> None:
         """Register a tool in the registry.
 
         Args:
             tool: The ToolSpec to register.
-            replace: If True, allow overwriting an existing tool with the same name.
-                     If False (default), raise ValueError on duplicate names.
+            replace: If True, allow overwriting an existing tool with the same
+                     name.  If False (default), raise ValueError on duplicate
+                     names.  Callers that pass ``replace=True`` must also pass
+                     ``actor_role="ADMIN"``; any other role (including ``None``)
+                     raises ``PermissionError``.
+            actor_role: Role of the caller.  Only ``"ADMIN"`` is permitted to
+                        use ``replace=True``.  Ignored when ``replace=False``.
 
         Raises:
+            PermissionError: If ``replace=True`` and ``actor_role`` is not
+                             ``"ADMIN"``.
             ValueError: If a tool with the same name is already registered and
-                        replace=False.
+                        ``replace=False``.
         """
+        if replace and actor_role != "ADMIN":
+            raise PermissionError(
+                "Replacing a registered tool requires actor_role='ADMIN', "
+                "but got {!r}. Pass actor_role='ADMIN' to allow overwriting "
+                "tool {!r}.".format(actor_role, tool.name)
+            )
         if tool.name in self._tools and not replace:
             raise ValueError(
                 "Tool '{}' is already registered. Use replace=True to overwrite.".format(
