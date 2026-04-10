@@ -67,13 +67,13 @@ class TestToolRegistry:
         assert "tool1" in str(exc_info.value)
 
     def test_register_with_replace_true(self):
-        """Registering with replace=True should allow overwriting."""
+        """Registering with replace=True and actor_role='ADMIN' should allow overwriting."""
         registry = ToolRegistry()
         spec1 = ToolSpec(name="tool1", handler=dummy_tool, description="First")
         spec2 = ToolSpec(name="tool1", handler=another_tool, description="Second")
 
         registry.register(spec1)
-        registry.register(spec2, replace=True)
+        registry.register(spec2, replace=True, actor_role="ADMIN")
 
         retrieved = registry.get("tool1")
         assert retrieved is not None
