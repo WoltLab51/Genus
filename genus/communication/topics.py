@@ -294,4 +294,44 @@ _r(TopicEntry(
     description="Quality evaluation completed; payload carries quality_score, dimensions, evidence.",
 ))
 
+# ---------------------------------------------------------------------------
+# growth domain
+# ---------------------------------------------------------------------------
+
+_r(TopicEntry(
+    topic="need.identified",
+    owner="NeedObserver",
+    direction="publish",
+    domain="growth",
+    description="NeedObserver hat einen wiederkehrenden Need erkannt der einen Build rechtfertigt.",
+))
+_r(TopicEntry(
+    topic="need.rejected",
+    owner="GrowthOrchestrator",
+    direction="publish",
+    domain="growth",
+    description="GrowthOrchestrator hat einen Need abgelehnt (Cooldown, QualityGate, oder StabilityRules).",
+))
+_r(TopicEntry(
+    topic="growth.build.requested",
+    owner="GrowthOrchestrator",
+    direction="publish",
+    domain="growth",
+    description="GrowthOrchestrator fordert einen neuen Agent-Build vom DevLoopOrchestrator an.",
+))
+_r(TopicEntry(
+    topic="agent.bootstrapped",
+    owner="AgentBootstrapper",
+    direction="publish",
+    domain="growth",
+    description="AgentBootstrapper hat einen neuen Agenten erfolgreich integriert.",
+))
+_r(TopicEntry(
+    topic="agent.deprecated",
+    owner="AgentBootstrapper",
+    direction="publish",
+    domain="growth",
+    description="AgentBootstrapper hat einen alten Agenten als deprecated markiert.",
+))
+
 del _r
