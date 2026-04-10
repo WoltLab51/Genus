@@ -36,7 +36,7 @@ Morphologie beschreibt nicht *was* GENUS tut, sondern *wie es gebaut ist* — di
 | `family` | Familienorganisation, Kalender, Ole-Tagebuch |
 | `home` | Heimnetz, Geräte, Pi5-Management |
 | `trading` | Trading-App Monry, Strategien, Marktdaten |
-| `security` | Internetsicherheit für die Familie |
+| `security_compliance` | Internetsicherheit für die Familie |
 | `communication` | Nachrichten, Benachrichtigungen zwischen Agenten |
 
 ---
@@ -64,7 +64,7 @@ Wachstum    |  ✅  |    ✅     |    ✅
 ## Wachstumsregeln
 
 - Kein neuer Agent ohne mind. 2 Trigger-Beobachtungen
-- Kein Build wenn `security_compliance < 0.90` (Wert aus `QualityScorecard`, Dimension `security`)
+- Kein Build wenn `security_compliance < 0.90` (Wert aus `QualityGate`, Dimension `security_compliance`)
 - 24h Wartezeit bevor ein Agent ersetzt werden darf
 - 12h Cooldown pro (domain, need) nach einem Build
 - Max. 2 neue Agenten pro Tag (Limit aus IdentityProfile)
