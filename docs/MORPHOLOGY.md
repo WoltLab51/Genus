@@ -64,7 +64,7 @@ Wachstum    |  ✅  |    ✅     |    ✅
 ## Wachstumsregeln
 
 - Kein neuer Agent ohne mind. 2 Trigger-Beobachtungen
-- Kein Build wenn `security_compliance < 0.90`
+- Kein Build wenn `security_compliance < 0.90` (Wert aus `QualityScorecard`, Dimension `security`)
 - 24h Wartezeit bevor ein Agent ersetzt werden darf
 - 12h Cooldown pro (domain, need) nach einem Build
 - Max. 2 neue Agenten pro Tag (Limit aus IdentityProfile)
