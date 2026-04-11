@@ -188,7 +188,7 @@ class LLMRouter:
             "task_type": task_type.value,
             "score": score,
             "run_id": run_id,
-            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         if metadata:
             entry["metadata"] = metadata
