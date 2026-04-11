@@ -155,8 +155,9 @@ class AgentBootstrapper(Agent):
         file directly from ``self._generated_agents_path``.
 
         Any exception *other* than a plain ``ImportError`` (e.g.
-        ``SyntaxError`` in the generated file) is **not** caught here — the
-        caller is responsible for handling it.
+        ``SyntaxError`` in the generated file) is **not** caught here — it
+        bubbles up to ``process_message``, which catches it, logs it, and
+        publishes ``agent.bootstrap_failed``.
 
         Args:
             agent_name: CamelCase class name, e.g. ``"FamilyCalendarAgent"``.
@@ -179,7 +180,9 @@ class AgentBootstrapper(Agent):
         directory is not (yet) on ``sys.path``.
 
         Any exception raised while executing the module (e.g. ``SyntaxError``,
-        ``ImportError`` of a missing dependency) is **not** caught here.
+        ``ImportError`` of a missing dependency) is **not** caught here; it
+        bubbles up to the caller (``_load_agent_class``), which in turn lets it
+        propagate to ``process_message`` for error-event publishing.
 
         Args:
             agent_name:  CamelCase class name.
