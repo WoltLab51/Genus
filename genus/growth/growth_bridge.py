@@ -54,7 +54,7 @@ import asyncio
 import copy
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from genus.communication.message_bus import Message, MessageBus
 from genus.core.agent import Agent, AgentState
@@ -62,6 +62,9 @@ from genus.core.run import new_run_id
 from genus.dev.devloop_orchestrator import DevLoopOrchestrator
 from genus.memory.run_journal import RunJournal
 from genus.memory.store_jsonl import JsonlRunStore
+
+if TYPE_CHECKING:
+    from genus.llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +97,11 @@ class GrowthBridge(Agent):
                            created.  Defaults to
                            ``~/.genus/growth_runs``.  Override in tests via
                            ``tmp_path``.
+        llm_router:        Optional :class:`~genus.llm.router.LLMRouter`.  When
+                           provided, the LLM router is injected into each
+                           :class:`~genus.dev.devloop_orchestrator.DevLoopOrchestrator`
+                           spawned by this bridge.  When ``None`` (default),
+                           orchestrators run in stub mode (backward compatible).
     """
 
     def __init__(
@@ -104,6 +112,7 @@ class GrowthBridge(Agent):
         devloop_timeout_s: float = 60.0,
         max_iterations: int = 2,
         journal_base_path: Optional[Path] = None,
+        llm_router: "Optional[LLMRouter]" = None,
     ) -> None:
         super().__init__(agent_id=agent_id, name=name or "GrowthBridge")
         self._bus = message_bus
@@ -112,6 +121,7 @@ class GrowthBridge(Agent):
         self._journal_base_path: Path = journal_base_path or (
             Path.home() / ".genus" / "growth_runs"
         )
+        self._llm_router = llm_router
         # run_id → {"agent_spec_template": {...}, "need_id": str, "domain": str}
         self._active_runs: Dict[str, dict] = {}
 
@@ -195,6 +205,7 @@ class GrowthBridge(Agent):
             timeout_s=self._devloop_timeout_s,
             max_iterations=self._max_iterations,
             run_journal=journal,
+            llm_router=self._llm_router,
         )
 
         # Fire-and-forget — errors are logged; the orchestrator itself

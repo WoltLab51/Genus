@@ -45,6 +45,7 @@ from genus.dev.runtime import DevResponseFailedError, DevResponseTimeoutError
 from genus.memory.run_journal import RunJournal
 
 if TYPE_CHECKING:
+    from genus.llm.router import LLMRouter
     from genus.strategy.selector import StrategySelector
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,10 @@ class DevLoopOrchestrator:
                                All phase events and artifacts are written here.
         strategy_selector:     Optional :class:`~genus.strategy.selector.StrategySelector`
                                instance for fix-phase strategy selection.
+        llm_router:            Optional :class:`~genus.llm.router.LLMRouter` instance.
+                               When provided, phase agents use LLM-backed reasoning.
+                               When ``None`` (default), agents run in stub mode
+                               (backward compatible).
         plan_timeout_s:        Override timeout for the plan phase.
         implement_timeout_s:   Override timeout for the implement phase.
         test_timeout_s:        Override timeout for the test phase.
@@ -84,6 +89,7 @@ class DevLoopOrchestrator:
         *,
         run_journal: RunJournal,
         strategy_selector: "Optional[StrategySelector]" = None,
+        llm_router: "Optional[LLMRouter]" = None,
         plan_timeout_s: Optional[float] = None,
         implement_timeout_s: Optional[float] = None,
         test_timeout_s: Optional[float] = None,
@@ -96,6 +102,7 @@ class DevLoopOrchestrator:
         self._max_iterations = max_iterations
         self._commit_each_iteration = commit_each_iteration
         self._strategy_selector = strategy_selector
+        self._llm_router = llm_router
         self._run_journal = run_journal
         self._plan_timeout_s = plan_timeout_s if plan_timeout_s is not None else timeout_s
         self._implement_timeout_s = implement_timeout_s if implement_timeout_s is not None else timeout_s
