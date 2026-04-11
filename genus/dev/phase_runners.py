@@ -311,11 +311,24 @@ class FixPhaseRunner:
         Returns:
             The fix response payload dict.
         """
+        # Build detailed message including structured failure info when available
+        failures = test_report.get("failures", [])
+        failing_tests = test_report.get("failing_tests", [])
+        base_message = test_report.get("summary", "Tests failed")
+        if failures:
+            failure_lines = "\n".join(
+                f"- {f['test']}: {f['message']}" for f in failures
+            )
+            detail_message = f"{base_message}\n{failure_lines}"
+        else:
+            detail_message = base_message
+
         findings = [
             {
                 "type": "test_failure",
-                "message": test_report.get("summary", "Tests failed"),
-                "failing_tests": test_report.get("failing_tests", []),
+                "message": detail_message,
+                "failing_tests": failing_tests or [f["test"] for f in failures],
+                "failures": failures,
                 "report": test_report,
             }
         ]
