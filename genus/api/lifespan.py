@@ -162,7 +162,7 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.connection_manager = connection_manager
     logger.info("ConversationAgent + ConnectionManager started")
 
-    # 6. Subscribe to run.started → trigger DevLoopOrchestrator
+    # 7. Subscribe to run.started → trigger DevLoopOrchestrator
     async def _on_run_started(msg: Message) -> None:
         run_id = msg.metadata.get("run_id") or msg.payload.get("run_id")
         goal = msg.payload.get("goal", "")
