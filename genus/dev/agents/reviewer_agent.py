@@ -22,7 +22,9 @@ from genus.dev.agents.base import DevAgentBase
 
 logger = logging.getLogger(__name__)
 
-# Patterns that indicate dangerous code (security check)
+# Patterns that indicate dangerous code (security check).
+# Uses simple substring matching — intentionally conservative: any occurrence
+# of these tokens in the code source text is treated as a potential risk.
 _SECURITY_PATTERNS = [
     "eval(",
     "exec(",
@@ -257,7 +259,11 @@ class ReviewerAgent(DevAgentBase):
         plan_steps: List[str],
         agent_spec_template: Optional[Dict[str, Any]],
     ) -> List[Any]:
-        """Build the list of LLMMessages for the code-review prompt."""
+        """Build the list of LLMMessages for the code-review prompt.
+
+        The prompt is written in German to match the language used by other
+        GENUS agent prompts (PlannerAgent, BuilderAgent).
+        """
         from genus.llm.models import LLMMessage, LLMRole
 
         system = (
