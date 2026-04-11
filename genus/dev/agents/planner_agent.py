@@ -102,10 +102,18 @@ class PlannerAgent(DevAgentBase):
         agent_spec_template: Optional[Dict[str, Any]] = metadata.get("agent_spec_template")
         domain: Optional[str] = metadata.get("domain")
 
+        # ── Stellschraube 3: EpisodicContext → PlannerPrompt (Phase 13c) ────
+        episodic_context = msg.payload.get("episodic_context")
+        episodic_summary: Optional[str] = None
+        if episodic_context:
+            from genus.dev.context_formatter import format_episodic_for_planner
+            episodic_summary = format_episodic_for_planner(episodic_context)
+
         # Generate plan
         if self._llm_router is not None:
             llm_result = await self._generate_plan_with_llm(
-                requirements, constraints, agent_spec_template, domain
+                requirements, constraints, agent_spec_template, domain,
+                episodic_summary=episodic_summary,
             )
         else:
             llm_result = None
@@ -146,6 +154,8 @@ class PlannerAgent(DevAgentBase):
         constraints: List[str],
         agent_spec_template: Optional[Dict[str, Any]],
         domain: Optional[str],
+        *,
+        episodic_summary: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Call the LLM router and return parsed plan data, or None on error."""
         from genus.llm.exceptions import LLMProviderUnavailableError, LLMResponseParseError
@@ -153,7 +163,8 @@ class PlannerAgent(DevAgentBase):
 
         try:
             messages = self._build_plan_prompt(
-                requirements, constraints, agent_spec_template, domain
+                requirements, constraints, agent_spec_template, domain,
+                episodic_summary=episodic_summary,
             )
             response = await self._llm_router.complete(
                 messages, task_type=TaskType.PLANNING
@@ -175,6 +186,8 @@ class PlannerAgent(DevAgentBase):
         constraints: List[str],
         agent_spec_template: Optional[Dict[str, Any]],
         domain: Optional[str],
+        *,
+        episodic_summary: Optional[str] = None,
     ) -> List[Any]:
         """Build the list of LLMMessages for the planning prompt."""
         from genus.llm.models import LLMMessage, LLMRole
@@ -189,6 +202,12 @@ class PlannerAgent(DevAgentBase):
             '}\n\n'
             "Keine weiteren Erklärungen, kein Markdown, nur das JSON-Objekt."
         )
+
+        messages: List[Any] = [LLMMessage(role=LLMRole.SYSTEM, content=system)]
+
+        # ── EpisodicContext as additional SYSTEM message (Phase 13c) ─────────
+        if episodic_summary:
+            messages.append(LLMMessage(role=LLMRole.SYSTEM, content=episodic_summary))
 
         user_parts = []
         if domain:
@@ -211,10 +230,8 @@ class PlannerAgent(DevAgentBase):
                 "Einschränkungen:\n" + "\n".join(f"- {c}" for c in constraints)
             )
 
-        return [
-            LLMMessage(role=LLMRole.SYSTEM, content=system),
-            LLMMessage(role=LLMRole.USER, content="\n\n".join(user_parts)),
-        ]
+        messages.append(LLMMessage(role=LLMRole.USER, content="\n\n".join(user_parts)))
+        return messages
 
     def _parse_plan_response(self, content: str) -> Dict[str, Any]:
         """Parse the LLM response as JSON.
