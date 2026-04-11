@@ -9,6 +9,7 @@ and agent bootstrapping.
 from genus.growth.identity_profile import IdentityProfile, StabilityRules
 from genus.growth.agent_spec import AgentSpec, AgentMorphology, AgentLayer, AgentDomain
 from genus.growth.need_record import NeedRecord
+from genus.growth.need_store import NeedStore
 from genus.growth.need_observer import NeedObserver
 from genus.growth.growth_orchestrator import GrowthOrchestrator
 from genus.growth.bootstrapper import AgentBootstrapper
@@ -23,6 +24,7 @@ __all__ = [
     "AgentLayer",
     "AgentDomain",
     "NeedRecord",
+    "NeedStore",
     "NeedObserver",
     "GrowthOrchestrator",
     "AgentBootstrapper",
