@@ -5,9 +5,14 @@ Subscribes to dev.implement.requested and publishes dev.implement.completed
 or dev.implement.failed.
 
 PR #28: Now supports real workspace operations (write files, git commit).
+Phase 10c: Optional LLM-based code generation via LLMRouter.
 """
 
-from typing import Awaitable, Callable, List, Literal, Optional, Tuple
+import ast
+import logging
+import re
+from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Tuple
+
 from genus.communication.message_bus import Message, MessageBus
 from genus.dev import events, topics
 from genus.dev.agents.base import DevAgentBase
@@ -15,6 +20,12 @@ from genus.workspace.workspace import RunWorkspace
 from genus.memory.run_journal import RunJournal
 from genus.tools.repo_write import write_text_file
 from genus.tools import git_tools
+
+logger = logging.getLogger(__name__)
+
+_STUB_CODE = "# stub"
+_STUB_PATCH_SUMMARY = "Implemented planned changes (placeholder)"
+_STUB_FILES_CHANGED = ["README.md"]
 
 
 class BuilderAgent(DevAgentBase):
@@ -29,6 +40,9 @@ class BuilderAgent(DevAgentBase):
         branch_name:          Optional branch name to create before implementing.
         allowed_write_paths:  Allowlist of paths where writes are permitted.
         journal:              Optional RunJournal for logging tool usage.
+        llm_router:           Optional LLMRouter. When provided (and no workspace) the
+                              agent uses the LLM to generate Python code. When None,
+                              stub behaviour is used (backward compatible).
 
     Example::
 
@@ -44,6 +58,10 @@ class BuilderAgent(DevAgentBase):
             allowed_write_paths=["docs/"],
         )
         builder.start()
+
+        # LLM code-generation mode (Phase 10c)
+        builder = BuilderAgent(bus, "builder-1", llm_router=router)
+        builder.start()
     """
 
     def __init__(
@@ -56,6 +74,7 @@ class BuilderAgent(DevAgentBase):
         branch_name: Optional[str] = None,
         allowed_write_paths: Optional[List[str]] = None,
         journal: Optional[RunJournal] = None,
+        llm_router: Optional[Any] = None,
     ) -> None:
         super().__init__(bus, agent_id)
         self._mode = mode
@@ -64,6 +83,7 @@ class BuilderAgent(DevAgentBase):
         self._branch_name = branch_name
         self._allowed_write_paths = allowed_write_paths or []
         self._journal = journal
+        self._llm_router = llm_router
 
     def _subscribe_topics(self) -> List[Tuple[str, Callable[[Message], Awaitable[None]]]]:
         """Register handlers for dev.implement.requested and dev.fix.requested."""
@@ -105,10 +125,13 @@ class BuilderAgent(DevAgentBase):
             )
             return
 
-        # Determine if we're in workspace mode or placeholder mode
+        # Determine implementation mode
         if self._workspace is not None:
             # Real implementation (PR #28)
             await self._implement_with_workspace(run_id, phase_id, iteration)
+        elif self._llm_router is not None:
+            # LLM code generation (Phase 10c)
+            await self._implement_with_llm(run_id, phase_id, msg)
         else:
             # Placeholder implementation (backward compatible)
             await self._implement_placeholder(run_id, phase_id)
@@ -121,8 +144,8 @@ class BuilderAgent(DevAgentBase):
             phase_id: The phase identifier for correlation.
         """
         # Build placeholder implementation result
-        patch_summary = "Implemented planned changes (placeholder)"
-        files_changed = ["README.md"]
+        patch_summary = _STUB_PATCH_SUMMARY
+        files_changed = list(_STUB_FILES_CHANGED)
 
         # Publish completed response
         await self._bus.publish(
@@ -134,6 +157,170 @@ class BuilderAgent(DevAgentBase):
                 phase_id=phase_id,
             )
         )
+
+    async def _implement_with_llm(
+        self, run_id: str, phase_id: str, msg: Message
+    ) -> None:
+        """LLM-based code generation (Phase 10c).
+
+        Args:
+            run_id:   The run identifier.
+            phase_id: The phase identifier for correlation.
+            msg:      The original dev.implement.requested message.
+        """
+        payload = msg.payload if isinstance(msg.payload, dict) else {}
+        metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
+
+        plan: Dict[str, Any] = payload.get("plan") or {}
+        plan_steps: List[str] = plan.get("steps", [])
+        agent_spec_template: Optional[Dict[str, Any]] = (
+            payload.get("agent_spec_template") or metadata.get("agent_spec_template")
+        )
+        domain: Optional[str] = payload.get("domain") or metadata.get("domain")
+
+        llm_result = await self._generate_code_with_llm(
+            plan_steps, agent_spec_template, domain
+        )
+
+        if llm_result is not None:
+            code = llm_result.get("code", _STUB_CODE)
+            filename = llm_result.get("filename", "generated_agent.py")
+            language = llm_result.get("language", "python")
+        else:
+            code = _STUB_CODE
+            filename = "generated_agent.py"
+            language = "python"
+
+        patch_summary = f"Generated {filename} ({language})"
+        await self._bus.publish(
+            events.dev_implement_completed_message(
+                run_id,
+                self.agent_id,
+                patch_summary,
+                [filename],
+                phase_id=phase_id,
+                payload={"code": code, "filename": filename, "language": language},
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # LLM helpers
+    # ------------------------------------------------------------------
+
+    async def _generate_code_with_llm(
+        self,
+        plan_steps: List[str],
+        agent_spec_template: Optional[Dict[str, Any]],
+        domain: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Call the LLM router and return parsed code data, or None on error."""
+        from genus.llm.exceptions import LLMProviderUnavailableError, LLMResponseParseError
+        from genus.llm.router import TaskType
+
+        agent_name = "GeneratedAgent"
+        if agent_spec_template:
+            agent_name = agent_spec_template.get("name", agent_name)
+
+        try:
+            messages = self._build_code_prompt(plan_steps, agent_spec_template, domain)
+            response = await self._llm_router.complete(
+                messages, task_type=TaskType.CODE_GEN
+            )
+            return self._parse_code_response(response.content, agent_name)
+        except LLMResponseParseError as exc:
+            logger.warning("BuilderAgent: LLM response parse error, using fallback: %s", exc)
+            return None
+        except LLMProviderUnavailableError as exc:
+            logger.warning("BuilderAgent: LLM provider unavailable, using stub: %s", exc)
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("BuilderAgent: unexpected LLM error, using stub: %s", exc)
+            return None
+
+    def _build_code_prompt(
+        self,
+        plan_steps: List[str],
+        agent_spec_template: Optional[Dict[str, Any]],
+        domain: Optional[str],
+    ) -> List[Any]:
+        """Build the list of LLMMessages for the code-generation prompt."""
+        from genus.llm.models import LLMMessage, LLMRole
+
+        system = (
+            "Du bist ein erfahrener Python-Entwickler im GENUS-System.\n"
+            "Deine Aufgabe: Implementiere einen GENUS-Agenten basierend auf dem Plan.\n\n"
+            "Ein GENUS-Agent hat immer diese Struktur:\n"
+            "from __future__ import annotations\n"
+            "from typing import Optional\n"
+            "from genus.communication.message_bus import Message, MessageBus\n"
+            "from genus.core.agent import Agent, AgentState\n\n"
+            "class MyAgent(Agent):\n"
+            "    def __init__(self, message_bus: MessageBus, agent_id: Optional[str] = None,"
+            " name: Optional[str] = None) -> None:\n"
+            "        super().__init__(agent_id=agent_id, name=name or 'MyAgent')\n"
+            "        self._bus = message_bus\n\n"
+            "    async def initialize(self) -> None:\n"
+            "        self._bus.subscribe('my.topic', self.id, self.process_message)\n"
+            "        self._transition_state(AgentState.INITIALIZED)\n\n"
+            "    async def start(self) -> None:\n"
+            "        self._transition_state(AgentState.RUNNING)\n\n"
+            "    async def stop(self) -> None:\n"
+            "        self._bus.unsubscribe_all(self.id)\n"
+            "        self._transition_state(AgentState.STOPPED)\n\n"
+            "    async def process_message(self, message: Message) -> None:\n"
+            "        pass\n\n"
+            "Antworte AUSSCHLIESSLICH mit dem Python-Code, ohne Markdown-Codeblöcke,"
+            " ohne Erklärungen."
+        )
+
+        user_parts = []
+        if agent_spec_template:
+            name = agent_spec_template.get("name", "GeneratedAgent")
+            desc = agent_spec_template.get("description", "")
+            spec_topics = agent_spec_template.get("topics", [])
+            user_parts.append(f"Agent-Name: {name}")
+            if desc:
+                user_parts.append(f"Beschreibung: {desc}")
+            if spec_topics:
+                user_parts.append(f"Subscribe auf Topics: {', '.join(spec_topics)}")
+
+        if plan_steps:
+            user_parts.append(
+                "Implementierungsplan:\n"
+                + "\n".join(f"{i + 1}. {s}" for i, s in enumerate(plan_steps))
+            )
+
+        return [
+            LLMMessage(role=LLMRole.SYSTEM, content=system),
+            LLMMessage(role=LLMRole.USER, content="\n\n".join(user_parts)),
+        ]
+
+    def _parse_code_response(self, content: str, agent_name: str) -> Dict[str, Any]:
+        """Extract Python code from the LLM response.
+
+        Strips markdown fences if present and validates syntax via ast.parse().
+
+        Raises:
+            LLMResponseParseError: when the generated code has a syntax error.
+        """
+        from genus.dev.agents.agent_code_template import class_name_to_filename
+        from genus.llm.exceptions import LLMResponseParseError
+
+        code = content.strip()
+        if code.startswith("```"):
+            code = re.sub(r"^```(?:python)?\n?", "", code)
+            code = re.sub(r"\n?```$", "", code)
+        code = code.strip()
+
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            raise LLMResponseParseError(
+                f"BuilderAgent: generated code has syntax error: {exc}"
+            ) from exc
+
+        filename = class_name_to_filename(agent_name) + ".py"
+        return {"code": code, "filename": filename, "language": "python"}
 
     async def _implement_with_workspace(self, run_id: str, phase_id: str, iteration: int = 0) -> None:
         """Real implementation using workspace (PR #28).
