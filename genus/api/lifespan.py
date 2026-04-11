@@ -219,7 +219,7 @@ async def _run_devloop(
 
 
 async def _start_agents(bus: MessageBus) -> List[object]:
-    """Instantiate and start global pipeline agents (EvaluationAgent, StrategyLearningAgent, FeedbackAgent).
+    """Instantiate and start global pipeline agents (EvaluationAgent, StrategyLearningAgent, FeedbackAgent, NeedObserver).
 
     Returns list of started agents for shutdown.
     """
@@ -255,5 +255,23 @@ async def _start_agents(bus: MessageBus) -> List[object]:
         agents.append(agent)
     except ImportError:
         logger.warning("FeedbackAgent not available — skipping")
+
+    try:
+        from genus.growth.need_observer import NeedObserver
+        from genus.growth.need_store import NeedStore
+
+        needs_dir = Path(os.environ.get("GENUS_NEEDS_DIR", "var/needs"))
+        needs_dir.mkdir(parents=True, exist_ok=True)
+        need_store = NeedStore(base_dir=needs_dir)
+
+        need_observer = NeedObserver(
+            message_bus=bus,
+            need_store=need_store,
+        )
+        await need_observer.initialize()
+        await need_observer.start()
+        agents.append(need_observer)
+    except ImportError:
+        logger.warning("NeedObserver not available — skipping")
 
     return agents

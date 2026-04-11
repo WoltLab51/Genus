@@ -52,6 +52,7 @@ uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
 | `GENUS_OPENAI_API_KEY` | — | OpenAI API Key (optional) |
 | `GENUS_LLM_STRATEGY` | `adaptive` | Routing-Strategie (`adaptive`, `quality`, `cost`, `local`) |
 | `GENUS_LLM_SCORES_PATH` | `var/router_scores.jsonl` | Pfad für Router-Score-Persistenz |
+| `GENUS_NEEDS_DIR` | `var/needs/` | Verzeichnis für NeedObserver-State-Persistenz |
 ### Beispiel: Docker / systemd
 
 ```bash

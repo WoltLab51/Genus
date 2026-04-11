@@ -27,12 +27,15 @@ Topics published:
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from genus.communication.message_bus import Message, MessageBus
 from genus.core.agent import Agent, AgentState
 from genus.growth.identity_profile import StabilityRules
 from genus.growth.need_record import NeedRecord
+
+if TYPE_CHECKING:
+    from genus.growth.need_store import NeedStore
 
 # Topic constants
 _TOPIC_FEEDBACK = "feedback.received"
@@ -58,6 +61,10 @@ class NeedObserver(Agent):
         message_bus: The MessageBus to subscribe to and publish on.
         stability_rules: The :class:`~genus.growth.identity_profile.StabilityRules`
             governing the minimum trigger count before a build is initiated.
+            Defaults to ``StabilityRules()`` (all defaults) when not provided.
+        need_store: Optional :class:`~genus.growth.need_store.NeedStore` for
+            persisting state across restarts.  When ``None`` (default) the
+            observer operates in pure in-memory mode (backward compatible).
         agent_id: Optional custom agent ID.  Auto-generated if not provided.
         name: Optional human-readable agent name.  Defaults to
             ``"NeedObserver"``.
@@ -66,14 +73,19 @@ class NeedObserver(Agent):
     def __init__(
         self,
         message_bus: MessageBus,
-        stability_rules: StabilityRules,
+        stability_rules: Optional[StabilityRules] = None,
+        need_store: "Optional[NeedStore]" = None,
         agent_id: Optional[str] = None,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(agent_id=agent_id, name=name or "NeedObserver")
         self._bus = message_bus
-        self._stability_rules = stability_rules
+        self._stability_rules = stability_rules if stability_rules is not None else StabilityRules()
+        self._need_store: "Optional[NeedStore]" = need_store
         self._needs: Dict[Tuple[str, str], NeedRecord] = {}
+        # Load persisted state at startup when a store is provided.
+        if self._need_store:
+            self._needs = self._need_store.load_all()
 
     # ------------------------------------------------------------------
     # Agent lifecycle
@@ -178,6 +190,20 @@ class NeedObserver(Agent):
         if need.is_ready_for_build(self._stability_rules.min_trigger_count_before_build):
             need.status = "queued"
             await self._publish_need_identified(need)
+        # Persist current state of the record after all mutations.
+        if self._need_store:
+            self._need_store.save(need)
+
+    def _dismiss_need(self, domain: str, need_description: str) -> None:
+        """Remove a need from the internal ledger and persist the dismissal.
+
+        Args:
+            domain: The domain of the need to dismiss.
+            need_description: The need description of the need to dismiss.
+        """
+        self._needs.pop((domain, need_description), None)
+        if self._need_store:
+            self._need_store.dismiss(domain, need_description)
 
     async def _publish_need_identified(self, need: NeedRecord) -> None:
         """Publish a ``need.identified`` event for the given NeedRecord.
