@@ -15,6 +15,8 @@ from genus.api.errors import ErrorHandlingMiddleware
 from genus.api.middleware import ApiKeyMiddleware
 from genus.api.routers import health, outcome, runs
 from genus.api.routers import kill_switch as kill_switch_router
+from genus.api.routes import chat as chat_router
+from genus.api.routes import chat_rest as chat_rest_router
 
 
 def create_app(
@@ -91,5 +93,7 @@ def create_app(
     app.include_router(runs.router, prefix="/runs")
     app.include_router(outcome.router, prefix="/outcome")
     app.include_router(kill_switch_router.router, prefix="/kill-switch")
+    app.include_router(chat_router.router, tags=["chat"])
+    app.include_router(chat_rest_router.router, tags=["chat"])
 
     return app

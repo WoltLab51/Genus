@@ -127,10 +127,42 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 4. Build LLMRouter from environment variables (graceful degradation if unavailable)
     llm_router = await build_llm_router()
 
+    # Store LLMRouter in app state (needed by WebSocket handler)
+    app.state.llm_router = llm_router
+
     # 5. Start pipeline agents
     agents = await _start_agents(bus)
 
-    # 6. Subscribe to run.started → trigger DevLoopOrchestrator
+    # 6. Start ConversationAgent + ConnectionManager
+    from genus.conversation.conversation_agent import ConversationAgent
+    from genus.api.connection_manager import ConnectionManager
+
+    conversations_dir = Path(
+        os.environ.get("GENUS_CONVERSATIONS_DIR", "var/conversations")
+    )
+    conversations_dir.mkdir(parents=True, exist_ok=True)
+    max_history = int(os.environ.get("GENUS_MAX_CONVERSATION_HISTORY", "20"))
+    session_timeout = int(os.environ.get("GENUS_SESSION_TIMEOUT_MINUTES", "30"))
+
+    conversation_agent = ConversationAgent(
+        message_bus=bus,
+        llm_router=llm_router,
+        max_history=max_history,
+        conversations_dir=conversations_dir,
+    )
+    await conversation_agent.initialize()
+    await conversation_agent.start()
+
+    connection_manager = ConnectionManager(
+        default_llm_router=llm_router,
+        default_bus=bus,
+        conversations_dir=conversations_dir,
+        max_history=max_history,
+    )
+    app.state.connection_manager = connection_manager
+    logger.info("ConversationAgent + ConnectionManager started")
+
+    # 7. Subscribe to run.started → trigger DevLoopOrchestrator
     async def _on_run_started(msg: Message) -> None:
         run_id = msg.metadata.get("run_id") or msg.payload.get("run_id")
         goal = msg.payload.get("goal", "")
@@ -157,6 +189,11 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield  # API is running
 
     # Shutdown
+    try:
+        await conversation_agent.stop()
+    except Exception as exc:
+        logger.warning("ConversationAgent stop failed: %s", exc)
+
     for agent in agents:
         try:
             stop_result = agent.stop()
