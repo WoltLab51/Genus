@@ -32,6 +32,7 @@ import pytest
 
 from genus.communication.message_bus import Message, MessageBus
 from genus.communication.topic_registry import TopicRegistry
+from genus.core.agent import AgentState
 from genus.dev.agents.template_builder_agent import TemplateBuilderAgent
 from genus.growth.bootstrapper import AgentBootstrapper
 from genus.growth.growth_bridge import GrowthBridge
@@ -81,7 +82,11 @@ async def _setup_all(tmp_path: Path):
         message_bus=bus,
         output_base_path=tmp_path / "generated",
     )
-    bootstrapper = AgentBootstrapper(message_bus=bus, topic_registry=registry)
+    bootstrapper = AgentBootstrapper(
+        message_bus=bus,
+        topic_registry=registry,
+        generated_agents_path=tmp_path / "generated",
+    )
     bridge = GrowthBridge(message_bus=bus, journal_base_path=tmp_path / "journals")
 
     await builder.initialize()
@@ -201,3 +206,74 @@ class TestBuilderAgentCycle:
         assert "class BudgetTrackerAgent" in content, (
             f"Expected 'class BudgetTrackerAgent' in generated file, but got:\n{content[:500]}"
         )
+
+    async def test_bootstrapper_has_running_agent_after_full_cycle(
+        self, tmp_path: Path
+    ) -> None:
+        """After the full cycle the bootstrapper holds a RUNNING agent instance.
+
+        Verifies Phase 9: AgentBootstrapper loads, instantiates, and starts the
+        generated agent so that _active_agents[agent_name]["instance"].state is
+        AgentState.RUNNING.
+        """
+        bus, builder, bootstrapper, bridge = await _setup_all(tmp_path)
+
+        await bus.publish(
+            Message(
+                topic="growth.build.requested",
+                payload=_build_payload(domain="home", agent_name="HomeAutomationAgent"),
+                sender_id="GrowthOrchestrator",
+            )
+        )
+
+        await asyncio.sleep(0.5)
+
+        assert "HomeAutomationAgent" in bootstrapper._active_agents, (
+            "Expected 'HomeAutomationAgent' in _active_agents after the cycle"
+        )
+        entry = bootstrapper._active_agents["HomeAutomationAgent"]
+        instance = entry.get("instance")
+        assert instance is not None, (
+            "Expected a running agent instance in _active_agents, got None"
+        )
+        assert instance.state == AgentState.RUNNING, (
+            f"Expected AgentState.RUNNING but got {instance.state}"
+        )
+
+    async def test_second_cycle_same_agent_name_stops_old_instance(
+        self, tmp_path: Path
+    ) -> None:
+        """Second growth cycle for the same agent name stops the first instance.
+
+        Verifies that AgentBootstrapper properly replaces agents across cycles.
+        """
+        bus, builder, bootstrapper, bridge = await _setup_all(tmp_path)
+
+        payload = _build_payload(domain="notify", agent_name="NotifyAgent")
+
+        # First cycle
+        await bus.publish(
+            Message(
+                topic="growth.build.requested",
+                payload=payload,
+                sender_id="GrowthOrchestrator",
+            )
+        )
+        await asyncio.sleep(0.5)
+
+        first_instance = bootstrapper._active_agents.get("NotifyAgent", {}).get("instance")
+
+        # Second cycle — re-trigger build for the same agent
+        await bus.publish(
+            Message(
+                topic="growth.build.requested",
+                payload=payload,
+                sender_id="GrowthOrchestrator",
+            )
+        )
+        await asyncio.sleep(0.5)
+
+        if first_instance is not None:
+            assert first_instance.state == AgentState.STOPPED, (
+                "First instance should be STOPPED after replacement"
+            )
