@@ -10,6 +10,7 @@ Each runner handles:
 All runners use the listen-before-publish pattern from genus.dev.runtime.
 """
 
+import copy
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -84,12 +85,23 @@ class PlanPhaseRunner:
         if ctx.episodic_context:
             plan_payload = {"episodic_context": ctx.episodic_context}
 
+        plan_metadata: Optional[Dict[str, Any]] = None
+        if ctx.context:
+            extra: Dict[str, Any] = {}
+            if ctx.context.get("agent_spec_template"):
+                extra["agent_spec_template"] = copy.deepcopy(ctx.context["agent_spec_template"])
+            if ctx.context.get("domain"):
+                extra["domain"] = ctx.context["domain"]
+            if extra:
+                plan_metadata = extra
+
         plan_req = events.dev_plan_requested_message(
             ctx.run_id,
             ctx.sender_id,
             requirements=requirements,
             constraints=constraints,
             payload=plan_payload,
+            metadata=plan_metadata,
         )
         phase_id = plan_req.payload["phase_id"]
 

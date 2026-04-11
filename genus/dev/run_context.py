@@ -49,6 +49,7 @@ class RunContext:
         timeouts:          Per-phase timeout configuration.
         strategy_selector: Optional strategy selector for fix phase.
         episodic_context:  Optional historical run context for the planner.
+        context:           Optional extra context dict (e.g. agent_spec_template, domain).
     """
     run_id: str
     goal: str
@@ -58,3 +59,4 @@ class RunContext:
     timeouts: PhaseTimeouts = field(default_factory=PhaseTimeouts)
     strategy_selector: "Optional[StrategySelector]" = None
     episodic_context: Optional[List[Dict[str, Any]]] = None
+    context: Optional[Dict[str, Any]] = None
