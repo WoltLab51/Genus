@@ -57,6 +57,11 @@ uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
 | `GENUS_CONVERSATIONS_DIR` | `var/conversations/` | Gesprächs-Persistenz (Phase 13) |
 | `GENUS_SESSION_TIMEOUT_MINUTES` | `30` | Inaktive Konversations-Sessions bereinigen (Phase 13) |
 | `GENUS_MAX_CONVERSATION_HISTORY` | `20` | Maximale Nachrichten im LLM-Kontext pro Session (Phase 13) |
+| `GENUS_MASTER_KEY` | – (Pflicht) | Superadmin API-Key für `ronny_wolter`; fehlt er, startet GENUS nicht (Phase 14) |
+| `GENUS_PROFILES_DIR` | `var/profiles/` | Profil-Dateien (JSON pro User) (Phase 14) |
+| `GENUS_GROUPS_DIR` | `var/groups/` | Gruppen-Dateien (JSON pro Gruppe) (Phase 14) |
+| `GENUS_VAULT_DIR` | `var/vault/` | Vertrauliche Daten (PrivacyVault) (Phase 14) |
+| `GENUS_DEFAULT_GROUP_NAME` | `Meine Familie` | Name der Standard-Familiengruppe (Phase 14) |
 ### Beispiel: Docker / systemd
 
 ```bash
