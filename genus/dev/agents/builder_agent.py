@@ -186,10 +186,18 @@ class BuilderAgent(DevAgentBase):
             code = llm_result.get("code", _STUB_CODE)
             filename = llm_result.get("filename", "generated_agent.py")
             language = llm_result.get("language", "python")
+            provider_name = llm_result.get("provider_name")
         else:
             code = _STUB_CODE
             filename = "generated_agent.py"
             language = "python"
+            provider_name = None
+
+        # Propagate metadata (including provider_name for ReviewerAgent score feedback)
+        incoming_metadata: Dict[str, Any] = payload.get("metadata") or {}
+        result_metadata: Dict[str, Any] = {**incoming_metadata}
+        if provider_name is not None:
+            result_metadata["provider_name"] = provider_name
 
         patch_summary = f"Generated {filename} ({language})"
         await self._bus.publish(
@@ -199,7 +207,12 @@ class BuilderAgent(DevAgentBase):
                 patch_summary,
                 [filename],
                 phase_id=phase_id,
-                payload={"code": code, "filename": filename, "language": language},
+                payload={
+                    "code": code,
+                    "filename": filename,
+                    "language": language,
+                    "metadata": result_metadata,
+                },
             )
         )
 
@@ -213,7 +226,11 @@ class BuilderAgent(DevAgentBase):
         agent_spec_template: Optional[Dict[str, Any]],
         domain: Optional[str],
     ) -> Optional[Dict[str, Any]]:
-        """Call the LLM router and return parsed code data, or None on error."""
+        """Call the LLM router and return parsed code data, or None on error.
+
+        The returned dict contains ``code``, ``filename``, ``language``, and
+        ``provider_name`` (the name of the LLM provider that generated the code).
+        """
         from genus.llm.exceptions import LLMProviderUnavailableError, LLMResponseParseError
         from genus.llm.router import TaskType
 
@@ -226,7 +243,9 @@ class BuilderAgent(DevAgentBase):
             response = await self._llm_router.complete(
                 messages, task_type=TaskType.CODE_GEN
             )
-            return self._parse_code_response(response.content, agent_name)
+            result = self._parse_code_response(response.content, agent_name)
+            result["provider_name"] = response.provider
+            return result
         except LLMResponseParseError as exc:
             logger.warning("BuilderAgent: LLM response parse error, using fallback: %s", exc)
             return None
