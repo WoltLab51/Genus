@@ -12,6 +12,8 @@ from genus.llm.exceptions import (
 from genus.llm.models import LLMMessage, LLMRequest, LLMResponse, LLMRole
 from genus.llm.providers.base import LLMProvider, ProviderCapabilities
 from genus.llm.providers.mock_provider import MockProvider
+from genus.llm.providers.ollama_provider import OllamaProvider
+from genus.llm.providers.openai_provider import OpenAIProvider
 from genus.llm.providers.registry import ProviderRegistry
 from genus.llm.router import LLMRouter, RoutingStrategy, TaskType
 
@@ -27,6 +29,8 @@ __all__ = [
     "LLMProvider",
     "ProviderCapabilities",
     "MockProvider",
+    "OllamaProvider",
+    "OpenAIProvider",
     "ProviderRegistry",
     # Router
     "LLMRouter",
