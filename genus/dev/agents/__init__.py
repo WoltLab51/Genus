@@ -10,6 +10,7 @@ Available agents:
 - :class:`~genus.dev.agents.builder_agent.BuilderAgent`
 - :class:`~genus.dev.agents.tester_agent.TesterAgent`
 - :class:`~genus.dev.agents.reviewer_agent.ReviewerAgent`
+- :class:`~genus.dev.agents.template_builder_agent.TemplateBuilderAgent`
 """
 
 from genus.dev.agents.base import DevAgentBase
@@ -17,6 +18,7 @@ from genus.dev.agents.planner_agent import PlannerAgent
 from genus.dev.agents.builder_agent import BuilderAgent
 from genus.dev.agents.tester_agent import TesterAgent
 from genus.dev.agents.reviewer_agent import ReviewerAgent
+from genus.dev.agents.template_builder_agent import TemplateBuilderAgent
 
 __all__ = [
     "DevAgentBase",
@@ -24,4 +26,5 @@ __all__ = [
     "BuilderAgent",
     "TesterAgent",
     "ReviewerAgent",
+    "TemplateBuilderAgent",
 ]
