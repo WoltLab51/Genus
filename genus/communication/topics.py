@@ -334,6 +334,20 @@ _r(TopicEntry(
     description="AgentBootstrapper hat einen alten Agenten als deprecated markiert.",
 ))
 _r(TopicEntry(
+    topic="agent.bootstrap_failed",
+    owner="AgentBootstrapper",
+    direction="publish",
+    domain="growth",
+    description="AgentBootstrapper konnte den generierten Agenten-Code nicht importieren.",
+))
+_r(TopicEntry(
+    topic="agent.start.failed",
+    owner="AgentBootstrapper",
+    direction="publish",
+    domain="growth",
+    description="AgentBootstrapper konnte einen generierten Agenten nicht initialisieren oder starten.",
+))
+_r(TopicEntry(
     topic="growth.loop.started",
     owner="GrowthBridge",
     direction="publish",
