@@ -19,6 +19,15 @@ Alle Topics, die im GENUS-MessageBus verwendet werden, sind hier dokumentiert. J
 | `data.analyzed` | `AnalysisAgent` (Legacy) | `QualityAgent` (Legacy-Alias) | `classification` | ✅ Ja | ❌ Nein (veraltet, ersetzt durch `analysis.completed`) |
 | `dev.run.requested` | `ConversationAgent` | `lifespan` → `DevLoopOrchestrator` | `goal`, `run_id`, `source` | ✅ Ja | ❌ Nein |
 | `system.kill_switch.requested` | `ConversationAgent` | Operator / lifespan | `reason`, `source` | ❌ Nein | ❌ Nein |
+| `identity.profile.created` | `ProfileStore` / `OnboardingAgent` | Monitoring | `user_id` | ❌ Nein | ❌ Nein |
+| `identity.profile.updated` | `ProfileStore` / API | Monitoring | `user_id` | ❌ Nein | ❌ Nein |
+| `identity.onboarding.started` | `OnboardingAgent` | Monitoring | `session_id` | ❌ Nein | ❌ Nein |
+| `identity.onboarding.completed` | `OnboardingAgent` | `ConversationAgent` | `user_id`, `session_id` | ❌ Nein | ❌ Nein |
+| `parental.screen_time.limit_reached` | `ParentalAgent` | Notification / API | `user_id`, `used_minutes`, `limit_minutes`, `locked_at` | ❌ Nein | ❌ Nein |
+| `parental.report.daily` | `ParentalAgent` | Notification / API | `child`, `date`, `screen_time_minutes` | ❌ Nein | ❌ Nein |
+| `parental.flag.critical_question` | `ParentalAgent` | Notification / API | `child_user_id`, `topic`, `question_preview`, `report_to` | ❌ Nein | ❌ Nein |
+| `parental.account.locked` | `ParentalAgent` | Monitoring | `user_id`, `reason`, `locked_at` | ❌ Nein | ❌ Nein |
+| `parental.account.unlocked` | `ParentalAgent` | Monitoring | `user_id` | ❌ Nein | ❌ Nein |
 
 ---
 

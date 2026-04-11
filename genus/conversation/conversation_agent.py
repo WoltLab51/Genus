@@ -250,6 +250,7 @@ class ConversationAgent(Agent):
     3. Reply with GENUS's personality (system prompt from GENUS_IDENTITY).
     4. Delegate to other agents when needed (DevLoop, Kill-Switch, …).
     5. Provide feedback on running processes.
+    6. Profile-aware: check onboarding status and agent permissions (Phase 14).
 
     Args:
         message_bus:   MessageBus instance for publishing events.
@@ -258,6 +259,10 @@ class ConversationAgent(Agent):
         system_prompt: Override the default GENUS system prompt.
         max_history:   Maximum messages to include in the LLM context window.
         conversations_dir: Where to persist per-session JSONL files.
+        profile_store: Optional ProfileStore for profile-aware responses (Phase 14).
+        permission_engine: Optional PermissionEngine for access checks (Phase 14).
+        onboarding_agent: Optional OnboardingAgent to handle new users (Phase 14).
+        parental_agent:   Optional ParentalAgent to enforce child limits (Phase 14).
     """
 
     def __init__(
@@ -268,6 +273,10 @@ class ConversationAgent(Agent):
         system_prompt: Optional[str] = None,
         max_history: int = 20,
         conversations_dir: Optional[Path] = None,
+        profile_store: Optional[Any] = None,
+        permission_engine: Optional[Any] = None,
+        onboarding_agent: Optional[Any] = None,
+        parental_agent: Optional[Any] = None,
     ) -> None:
         super().__init__(agent_id="ConversationAgent", name="ConversationAgent")
         self._bus = message_bus
@@ -278,6 +287,11 @@ class ConversationAgent(Agent):
         self._classifier = IntentClassifier()
         # session_id → ConversationMemory
         self._memories: Dict[str, ConversationMemory] = {}
+        # Phase 14 — identity integration (all optional for backward compat)
+        self._profile_store = profile_store
+        self._permission_engine = permission_engine
+        self._onboarding_agent = onboarding_agent
+        self._parental_agent = parental_agent
 
     # ------------------------------------------------------------------
     # Agent lifecycle
@@ -308,11 +322,56 @@ class ConversationAgent(Agent):
         """Process a user message and return GENUS's response.
 
         Steps:
-        1. Add the message to the session memory.
-        2. Classify the intent.
-        3. Dispatch to the appropriate handler.
-        4. Add the response to memory and return.
+        1. Profile check (Phase 14): onboarding + permission + screen-time.
+        2. Add the message to the session memory.
+        3. Classify the intent.
+        4. Dispatch to the appropriate handler.
+        5. Add the response to memory and return.
         """
+        # ── Phase 14 profile-aware checks ────────────────────────────────────
+        if self._profile_store is not None:
+            profile = await self._profile_store.get(user_id)
+            # Onboarding
+            if profile is None or not profile.onboarding_complete:
+                if self._onboarding_agent is not None:
+                    if profile is None:
+                        greeting = await self._onboarding_agent.start_onboarding(
+                            session_id
+                        )
+                        return ConversationResponse(
+                            text=greeting, intent=Intent.CHAT.value
+                        )
+                    response_text, _ = await self._onboarding_agent.process_onboarding_message(
+                        session_id, text
+                    )
+                    return ConversationResponse(
+                        text=response_text, intent=Intent.CHAT.value
+                    )
+
+            # Permission check
+            if self._permission_engine is not None and profile is not None:
+                allowed, reason = await self._permission_engine.can_use_agent(
+                    user_id, "conversation"
+                )
+                if not allowed:
+                    return ConversationResponse(
+                        text=f"Das darf ich dir nicht zeigen: {reason}",
+                        intent=Intent.CHAT.value,
+                    )
+
+            # Screen-time check for children
+            if (
+                self._parental_agent is not None
+                and profile is not None
+                and profile.is_child()
+            ):
+                has_access, msg = await self._parental_agent.check_and_enforce_limits(
+                    user_id
+                )
+                if not has_access:
+                    return ConversationResponse(text=msg, intent=Intent.CHAT.value)
+
+        # ── Normal flow ───────────────────────────────────────────────────────
         memory = self._get_or_create_memory(session_id)
         memory.add_user(text)
 

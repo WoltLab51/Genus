@@ -17,6 +17,7 @@ from genus.api.routers import health, outcome, runs
 from genus.api.routers import kill_switch as kill_switch_router
 from genus.api.routes import chat as chat_router
 from genus.api.routes import chat_rest as chat_rest_router
+from genus.api.routes import identity as identity_router
 
 
 def create_app(
@@ -95,5 +96,6 @@ def create_app(
     app.include_router(kill_switch_router.router, prefix="/kill-switch")
     app.include_router(chat_router.router, tags=["chat"])
     app.include_router(chat_rest_router.router, tags=["chat"])
+    app.include_router(identity_router.router, tags=["identity"])
 
     return app

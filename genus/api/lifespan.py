@@ -7,6 +7,8 @@ Manages startup and shutdown of all system components:
 - LLMRouter (built from environment variables at startup)
 - DevLoop agents (PlannerAgent, BuilderAgent, TesterAgent, ReviewerAgent)
 - EvaluationAgent, StrategyLearningAgent, FeedbackAgent
+- Identity stores (ProfileStore, GroupStore, PermissionEngine, PrivacyVault)
+- OnboardingAgent, ParentalAgent (Phase 14)
 
 Design:
 - Single shared KillSwitch instance — same object in app.state AND MessageBus
@@ -14,6 +16,7 @@ Design:
 - DevLoop trigger: subscribes to run.started → starts DevLoopOrchestrator.run() as asyncio.Task
 - RunJournal created per-run (not shared)
 - LLMRouter built once at startup, injected into per-run agents
+- GENUS_MASTER_KEY is required; missing it raises RuntimeError at startup
 """
 
 import asyncio
@@ -114,6 +117,14 @@ async def build_llm_router() -> "Optional[LLMRouter]":
 async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI lifespan context: start all agents, wire DevLoop trigger, stop on shutdown."""
 
+    # 0. Validate required environment variables
+    master_key = os.environ.get("GENUS_MASTER_KEY", "")
+    if not master_key:
+        raise RuntimeError(
+            "GENUS_MASTER_KEY environment variable is not set. "
+            "Set it before starting GENUS: GENUS_MASTER_KEY=<secret> uvicorn genus.main:app"
+        )
+
     # 1. Create shared KillSwitch — same instance for API state AND MessageBus
     ks = KillSwitch()
 
@@ -162,7 +173,56 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.connection_manager = connection_manager
     logger.info("ConversationAgent + ConnectionManager started")
 
-    # 7. Subscribe to run.started → trigger DevLoopOrchestrator
+    # 7. Start Identity stores + agents (Phase 14)
+    try:
+        from genus.identity.profile_store import ProfileStore
+        from genus.identity.group_store import GroupStore
+        from genus.identity.permission_engine import PermissionEngine
+        from genus.identity.privacy_vault import PrivacyVault
+        from genus.identity.onboarding_agent import OnboardingAgent
+        from genus.agents.parental_agent import ParentalAgent
+
+        profiles_dir = Path(os.environ.get("GENUS_PROFILES_DIR", "var/profiles"))
+        groups_dir = Path(os.environ.get("GENUS_GROUPS_DIR", "var/groups"))
+        vault_dir = Path(os.environ.get("GENUS_VAULT_DIR", "var/vault"))
+
+        profile_store = ProfileStore(base_dir=profiles_dir)
+        group_store = GroupStore(base_dir=groups_dir)
+        permission_engine = PermissionEngine(profile_store)
+        privacy_vault = PrivacyVault(base_dir=vault_dir, profile_store=profile_store)
+        onboarding_agent = OnboardingAgent(
+            message_bus=bus,
+            profile_store=profile_store,
+            group_store=group_store,
+            llm_router=llm_router,
+        )
+        parental_agent = ParentalAgent(
+            message_bus=bus,
+            profile_store=profile_store,
+        )
+
+        await onboarding_agent.initialize()
+        await onboarding_agent.start()
+        await parental_agent.initialize()
+        await parental_agent.start()
+
+        # Ensure superadmin profile exists
+        await profile_store.get_or_create_superadmin()
+        # Ensure default family group exists
+        await group_store.get_or_create_default_family()
+
+        app.state.profile_store = profile_store
+        app.state.group_store = group_store
+        app.state.permission_engine = permission_engine
+        app.state.privacy_vault = privacy_vault
+        app.state.onboarding_agent = onboarding_agent
+        app.state.parental_agent = parental_agent
+
+        logger.info("Identity stores + agents started (Phase 14)")
+    except ImportError as exc:
+        logger.warning("Identity module not available — skipping: %s", exc)
+
+    # 8. Subscribe to run.started → trigger DevLoopOrchestrator
     async def _on_run_started(msg: Message) -> None:
         run_id = msg.metadata.get("run_id") or msg.payload.get("run_id")
         goal = msg.payload.get("goal", "")
