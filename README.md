@@ -92,6 +92,10 @@ GENUS erkennt Ollama automatisch und startet im LLM-Modus.
 | Dokument | Inhalt |
 |---|---|
 | [GENUS_IDENTITY.md](docs/GENUS_IDENTITY.md) | Wer ist GENUS? Persönlichkeit, Vision, Werte |
+| [VISION_EXTENDED.md](docs/VISION_EXTENDED.md) | Das Manifest — die Seele von GENUS |
+| [MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) | Wie GENUS erinnert und vergisst (4 Schichten) |
+| [DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) | Pi / X1 / Fernzugriff / Cloud + Backup-Strategie |
+| [BACKGROUND_LOOP.md](docs/BACKGROUND_LOOP.md) | Tagesablauf, Proaktivität, Schwarm-LLM |
 | [ROADMAP.md](docs/ROADMAP.md) | Vollständige Roadmap, alle Phasen, nächste Schritte |
 | [ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) | Modulgrenzen, Clean Architecture |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Installation, Konfiguration, Umgebungsvariablen |

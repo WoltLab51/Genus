@@ -111,17 +111,50 @@ Private Bereiche die GENUS nicht teilt. Gemeinsame Bereiche für die Familie.
 
 *Liefert: UserProfile, FamilyContext, PrivacyPolicy, profile-aware ConversationAgent.*
 
-### Phase 15 — KnowledgeAgent + Recherche-Tools
+### Phase 14b — MemoryAgent + Episodisches Gedächtnis
+GENUS erinnert sich wirklich — nicht nur an die letzten 20 Nachrichten.
+Nacht-Job komprimiert Gespräche, überführt Wichtiges ins Semantic Memory,
+markiert Unwichtiges zum Vergessen. Konsistenz-Check verhindert stilles Überschreiben.
+
+*Liefert: MemoryAgent, EpisodicMemory, Nacht-Komprimierung, Konsistenz-Check.*
+
+→ Siehe auch: [MEMORY_ARCHITECTURE.md](MEMORY_ARCHITECTURE.md)
+
+### Phase 15 — KnowledgeAgent + Recherche-Tools + Deployment-Awareness
 GENUS kann recherchieren. WebSearchTool, SummarizeTool, LLM-gestützte Zusammenfassung.
 Verknüpft aktuelles Wissen mit vergangenen Gesprächen.
+DeploymentDetector erkennt beim Start automatisch Pi / X1 / Fernzugriff / Cloud-Fallback.
 
-*Liefert: KnowledgeAgent, WebSearchTool (DuckDuckGo/SearXNG), SummarizeTool, MemoryLinker.*
+*Liefert: KnowledgeAgent, WebSearchTool (DuckDuckGo/SearXNG), SummarizeTool, MemoryLinker,
+DeploymentDetector, genus.config.yaml-Support.*
 
-### Phase 16 — HomeAgent (Pi-Kontrolle, Monitoring)
+→ Siehe auch: [DEPLOYMENT_MODES.md](DEPLOYMENT_MODES.md)
+
+### Phase 15b — BackupAgent + WatchdogAgent
+GENUS sichert sich selbst — täglich, automatisch, mit 3-2-1-Strategie.
+WatchdogAgent überwacht Ollama, RAM, Disk und laufende Runs im Hintergrund.
+
+*Liefert: BackupAgent (ZIP + Rotation), WatchdogAgent, Restore-Prozess.*
+
+→ Siehe auch: [BACKGROUND_LOOP.md](BACKGROUND_LOOP.md)
+
+### Phase 16 — HomeAgent + BriefingAgent (Pi-Kontrolle, Morgen-Briefing)
 GENUS kennt das Zuhause. Systeminfo, Geräte, Netzwerke, Dateien.
 Überwacht, meldet, reagiert — direkt auf dem Pi.
+BriefingAgent liefert morgens um 07:00 eine Zusammenfassung: was ansteht, was GENUS vorbereitet hat.
 
-*Liefert: HomeAgent, SystemInfoTool, DiskMonitorTool, NetworkTool, Pi-aware SandboxPolicy.*
+*Liefert: HomeAgent, SystemInfoTool, DiskMonitorTool, NetworkTool, Pi-aware SandboxPolicy,
+BriefingAgent.*
+
+→ Siehe auch: [BACKGROUND_LOOP.md](BACKGROUND_LOOP.md)
+
+### Phase 16b — Schwarm-LLM + Morphologische Zerlegung
+GENUS zerlegt große Probleme in kleine präzise Fragen — jede an ein kleines lokales Modell.
+Schwarmintelligenz aus einfachen Teilen. Schneller auf dem Pi als ein großes Modell.
+
+*Liefert: SwarmOrchestrator, MorphologicalDecomposer, DimensionRouter.*
+
+→ Siehe auch: [BACKGROUND_LOOP.md](BACKGROUND_LOOP.md)
 
 ### Phase 17 — ProaktivitätsAgent (Push, E-Mail, Dringlichkeit)
 GENUS meldet sich von selbst. Push-Notifications, E-Mail, je nach Dringlichkeit.
@@ -191,6 +224,10 @@ Reflektiert eigene Performance, erkennt blinde Flecken, plant eigenes Wachstum.
 | Dokument | Inhalt |
 |---|---|
 | [GENUS_IDENTITY.md](GENUS_IDENTITY.md) | Wer ist GENUS? Persönlichkeit, Vision, Werte |
+| [VISION_EXTENDED.md](VISION_EXTENDED.md) | Das Manifest — die Seele von GENUS |
+| [MEMORY_ARCHITECTURE.md](MEMORY_ARCHITECTURE.md) | Wie GENUS erinnert und vergisst (4 Schichten) |
+| [DEPLOYMENT_MODES.md](DEPLOYMENT_MODES.md) | Pi / X1 / Fernzugriff / Cloud + Backup-Strategie |
+| [BACKGROUND_LOOP.md](BACKGROUND_LOOP.md) | Tagesablauf, Proaktivität, Schwarm-LLM |
 | [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) | Modulgrenzen, Clean Architecture, Agent-Lifecycle |
 | [TOPICS.md](TOPICS.md) | Topic-Registry, Payload-Contracts, Recorder-Whitelist |
 | [SECURITY.md](SECURITY.md) | Sicherheitsmodell, ACL, Kill-Switch |
