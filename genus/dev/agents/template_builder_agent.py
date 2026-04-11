@@ -328,7 +328,7 @@ class TemplateBuilderAgent(Agent):
         else:
             try:
                 spec = importlib.util.spec_from_file_location(
-                    class_name, str(generated_file)
+                    f"{class_name}_{generated_file.stem}", str(generated_file)
                 )
                 if spec is None or spec.loader is None:
                     raise ImportError(f"Cannot create module spec for {generated_file}")

@@ -26,7 +26,7 @@ from __future__ import annotations
 import ast
 import asyncio
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pytest
 
@@ -46,7 +46,7 @@ def _build_payload(
     domain: str = "calendar",
     need_description: str = "remind me about meetings",
     agent_name: str = "CalendarAgent",
-    topics: list = None,
+    topics: Optional[List[str]] = None,
 ) -> dict:
     return {
         "need_id": need_id,

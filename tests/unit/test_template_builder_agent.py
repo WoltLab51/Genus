@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pytest
 
@@ -30,7 +30,7 @@ def _collect(bus: MessageBus, topic: str) -> List[Message]:
     return captured
 
 
-def _plan_requested_msg(run_id: str, phase_id: str, extra_payload: dict = None) -> Message:
+def _plan_requested_msg(run_id: str, phase_id: str, extra_payload: Optional[dict] = None) -> Message:
     payload = {
         "phase_id": phase_id,
         "requirements": [],
