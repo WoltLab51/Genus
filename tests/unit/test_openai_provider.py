@@ -119,7 +119,7 @@ class TestOpenAIProviderCompleteWithMock:
             await provider.complete(request)
 
         _call = mock_client.chat.completions.create.call_args
-        sent_messages = _call.kwargs.get("messages") or _call.args[0] if _call.args else _call.kwargs["messages"]
+        sent_messages = _call.kwargs["messages"]
         assert sent_messages[0] == {"role": "system", "content": "You are helpful."}
         assert sent_messages[1] == {"role": "user", "content": "Do the thing."}
 

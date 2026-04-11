@@ -137,10 +137,7 @@ class TestOllamaProviderCompleteWithMock:
             await provider.complete(_make_request("Test prompt"))
 
         call_kwargs = mock_client.post.call_args.kwargs
-        sent_json = call_kwargs.get("json") or mock_client.post.call_args.args[1]
-        # Try positional args too
-        if sent_json is None:
-            sent_json = mock_client.post.call_args[1].get("json")
+        sent_json = call_kwargs["json"]
         assert sent_json is not None
         assert sent_json["model"] == "llama3.2"
         assert sent_json["stream"] is False
