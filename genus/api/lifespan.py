@@ -4,6 +4,7 @@ GENUS API Lifespan
 Manages startup and shutdown of all system components:
 - MessageBus
 - KillSwitch (shared instance wired into both API state and MessageBus)
+- LLMRouter (built from environment variables at startup)
 - DevLoop agents (PlannerAgent, BuilderAgent, TesterAgent, ReviewerAgent)
 - EvaluationAgent, StrategyLearningAgent, FeedbackAgent
 
@@ -12,12 +13,15 @@ Design:
 - All agents started in lifespan, stopped on shutdown
 - DevLoop trigger: subscribes to run.started → starts DevLoopOrchestrator.run() as asyncio.Task
 - RunJournal created per-run (not shared)
+- LLMRouter built once at startup, injected into per-run agents
 """
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, List
+from pathlib import Path
+from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
 from fastapi import FastAPI
 
@@ -25,7 +29,85 @@ from genus.communication.message_bus import Message, MessageBus
 from genus.run.topics import RUN_STARTED
 from genus.security.kill_switch import KillSwitch
 
+if TYPE_CHECKING:
+    from genus.llm.router import LLMRouter
+
 logger = logging.getLogger(__name__)
+
+
+async def build_llm_router() -> "Optional[LLMRouter]":
+    """Build LLMRouter with all configured providers.
+
+    Reads configuration from environment variables:
+    - GENUS_LLM_OLLAMA_URL   (Default: http://localhost:11434)
+    - GENUS_LLM_OLLAMA_MODEL (Default: llama3.2)
+    - GENUS_OPENAI_API_KEY   (optional: enables OpenAIProvider)
+    - GENUS_LLM_STRATEGY     (Default: adaptive)
+    - GENUS_LLM_SCORES_PATH  (Default: var/router_scores.jsonl)
+
+    Returns:
+        A configured :class:`~genus.llm.router.LLMRouter`, or ``None`` when no
+        providers could be registered (graceful degradation — stub mode).
+
+    LLM errors never block API startup.
+    """
+    try:
+        from genus.llm.providers.registry import ProviderRegistry
+        from genus.llm.providers.ollama_provider import OllamaProvider
+        from genus.llm.router import LLMRouter, RoutingStrategy
+
+        registry = ProviderRegistry()
+
+        # Ollama — always attempted first (runs locally on Pi / dev machine)
+        try:
+            ollama_url = os.environ.get("GENUS_LLM_OLLAMA_URL", "http://localhost:11434")
+            ollama_model = os.environ.get("GENUS_LLM_OLLAMA_MODEL", "llama3.2")
+            registry.register(OllamaProvider(base_url=ollama_url, default_model=ollama_model))
+            logger.info("OllamaProvider registered: %s (model: %s)", ollama_url, ollama_model)
+        except Exception as exc:
+            logger.warning("OllamaProvider setup failed: %s", exc)
+
+        # OpenAI — optional, only when API key is set
+        openai_key = os.environ.get("GENUS_OPENAI_API_KEY")
+        if openai_key:
+            try:
+                from genus.llm.providers.openai_provider import OpenAIProvider
+                from genus.llm.credential_store import CredentialStore
+
+                store = CredentialStore()
+                store.set("openai", "api_key", openai_key)
+                registry.register(OpenAIProvider(credential_store=store))
+                logger.info("OpenAIProvider registered")
+            except Exception as exc:
+                logger.warning("OpenAIProvider setup failed: %s", exc)
+
+        if not registry.list():
+            logger.warning("No LLM providers configured — DevLoop runs in stub mode")
+            return None
+
+        strategy_name = os.environ.get("GENUS_LLM_STRATEGY", "adaptive").upper()
+        strategy = (
+            RoutingStrategy[strategy_name]
+            if strategy_name in RoutingStrategy.__members__
+            else RoutingStrategy.ADAPTIVE
+        )
+
+        scores_path = Path(
+            os.environ.get("GENUS_LLM_SCORES_PATH", "var/router_scores.jsonl")
+        )
+        scores_path.parent.mkdir(parents=True, exist_ok=True)
+
+        router = LLMRouter(registry=registry, strategy=strategy, scores_path=scores_path)
+        logger.info(
+            "LLMRouter ready (strategy=%s, providers=%s)",
+            strategy.value,
+            [p.name for p in registry.list()],
+        )
+        return router
+
+    except Exception as exc:
+        logger.warning("LLMRouter build failed — running in stub mode: %s", exc)
+        return None
 
 
 @asynccontextmanager
@@ -42,10 +124,13 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.message_bus = bus
     app.state.kill_switch = ks
 
-    # 4. Start pipeline agents
+    # 4. Build LLMRouter from environment variables (graceful degradation if unavailable)
+    llm_router = await build_llm_router()
+
+    # 5. Start pipeline agents
     agents = await _start_agents(bus)
 
-    # 5. Subscribe to run.started → trigger DevLoopOrchestrator
+    # 6. Subscribe to run.started → trigger DevLoopOrchestrator
     async def _on_run_started(msg: Message) -> None:
         run_id = msg.metadata.get("run_id") or msg.payload.get("run_id")
         goal = msg.payload.get("goal", "")
@@ -53,7 +138,7 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning("run.started received without run_id — ignored")
             return
         logger.info("Starting DevLoop for run_id=%s goal=%r", run_id, goal)
-        task = asyncio.create_task(_run_devloop(bus, ks, run_id, goal))
+        task = asyncio.create_task(_run_devloop(bus, ks, run_id, goal, llm_router=llm_router))
 
         def _on_devloop_done(t: "asyncio.Task[None]") -> None:
             if not t.cancelled() and t.exception():
@@ -83,7 +168,14 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("GENUS API shutdown complete")
 
 
-async def _run_devloop(bus: MessageBus, ks: KillSwitch, run_id: str, goal: str) -> None:
+async def _run_devloop(
+    bus: MessageBus,
+    ks: KillSwitch,
+    run_id: str,
+    goal: str,
+    *,
+    llm_router: Optional["LLMRouter"] = None,
+) -> None:
     """Run DevLoopOrchestrator for a single run. Called as asyncio.Task."""
     from genus.dev.devloop_orchestrator import DevLoopOrchestrator
     from genus.dev.agents.planner_agent import PlannerAgent
@@ -97,11 +189,11 @@ async def _run_devloop(bus: MessageBus, ks: KillSwitch, run_id: str, goal: str) 
     store = JsonlRunStore()
     journal = RunJournal(run_id, store)
 
-    # Per-run agents (subscribe/unsubscribe cleanly)
-    planner = PlannerAgent(bus)
-    builder = BuilderAgent(bus)
+    # Per-run agents (subscribe/unsubscribe cleanly), with LLMRouter injected
+    planner = PlannerAgent(bus, llm_router=llm_router)
+    builder = BuilderAgent(bus, llm_router=llm_router)
     tester = TesterAgent(bus)
-    reviewer = ReviewerAgent(bus)
+    reviewer = ReviewerAgent(bus, llm_router=llm_router)
 
     run_agents = [planner, builder, tester, reviewer]
     for agent in run_agents:
@@ -113,6 +205,7 @@ async def _run_devloop(bus: MessageBus, ks: KillSwitch, run_id: str, goal: str) 
             run_journal=journal,
             timeout_s=60.0,
             max_iterations=3,
+            llm_router=llm_router,
         )
         await orchestrator.run(run_id=run_id, goal=goal)
     except Exception as exc:

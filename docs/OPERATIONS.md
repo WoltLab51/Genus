@@ -4,6 +4,39 @@
 
 ---
 
+## LLM-Konfiguration
+
+| Variable | Default | Beschreibung |
+|---|---|---|
+| `GENUS_LLM_OLLAMA_URL` | `http://localhost:11434` | Ollama API URL |
+| `GENUS_LLM_OLLAMA_MODEL` | `llama3.2` | Standard-Ollama-Modell |
+| `GENUS_OPENAI_API_KEY` | — | OpenAI API Key (optional) |
+| `GENUS_LLM_STRATEGY` | `adaptive` | Routing-Strategie: `adaptive`, `quality`, `cost`, `local` |
+| `GENUS_LLM_SCORES_PATH` | `var/router_scores.jsonl` | Pfad für Router-Score-Persistenz |
+
+Ohne konfigurierte Provider laufen alle Agenten im **Stub-Modus** (rückwärtskompatibel).
+
+### Schnellstart auf dem Raspberry Pi (nur Ollama)
+
+```bash
+# 1. Ollama installieren und starten
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.2
+
+# 2. GENUS starten (Ollama wird automatisch erkannt)
+uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+### Mit OpenAI + Ollama (Hybrid)
+
+```bash
+export GENUS_OPENAI_API_KEY="sk-..."
+export GENUS_LLM_STRATEGY="adaptive"
+uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+---
+
 ## 1. Konfiguration
 
 ### Umgebungsvariablen
@@ -14,6 +47,11 @@
 | `GENUS_EVENTSTORE_DIR` | `var/events` | Verzeichnis für JSONL-Event-Logs (pro `run_id` eine Datei) |
 | `GENUS_ENV` | `development` | Umgebung; `production` deaktiviert Debug-Details in Fehlermeldungen |
 | `GENUS_LOG_LEVEL` | `INFO` | Log-Level: `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `GENUS_LLM_OLLAMA_URL` | `http://localhost:11434` | Ollama API URL (siehe LLM-Konfiguration) |
+| `GENUS_LLM_OLLAMA_MODEL` | `llama3.2` | Standard-Ollama-Modell |
+| `GENUS_OPENAI_API_KEY` | — | OpenAI API Key (optional) |
+| `GENUS_LLM_STRATEGY` | `adaptive` | Routing-Strategie (`adaptive`, `quality`, `cost`, `local`) |
+| `GENUS_LLM_SCORES_PATH` | `var/router_scores.jsonl` | Pfad für Router-Score-Persistenz |
 ### Beispiel: Docker / systemd
 
 ```bash
