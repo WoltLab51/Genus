@@ -12,7 +12,8 @@ from genus.growth.need_record import NeedRecord
 from genus.growth.need_store import NeedStore
 from genus.growth.need_observer import NeedObserver
 from genus.growth.growth_orchestrator import GrowthOrchestrator
-from genus.growth.bootstrapper import AgentBootstrapper
+from genus.growth.bootstrapper import AgentBootstrapper, AgentValidationError
+from genus.growth.code_validator import CodeValidator, ValidationResult
 from genus.growth.growth_bridge import GrowthBridge
 from genus.growth.stub_dev_agent import StubDevAgent
 
@@ -28,6 +29,9 @@ __all__ = [
     "NeedObserver",
     "GrowthOrchestrator",
     "AgentBootstrapper",
+    "AgentValidationError",
+    "CodeValidator",
+    "ValidationResult",
     "GrowthBridge",
     "StubDevAgent",
 ]

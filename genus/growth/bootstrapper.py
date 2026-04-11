@@ -5,10 +5,12 @@ Handles the integration of newly built agents into the running GENUS system.
 The AgentBootstrapper receives ``dev.loop.completed`` events and:
 
 1. Loads the generated agent class via ``importlib`` (Phase 9).
-2. Instantiates, initialises, and starts the agent.
-3. Registers the new agent's topics in the ``TopicRegistry``.
-4. Publishes ``agent.bootstrapped`` to signal successful integration.
-5. Publishes ``agent.deprecated`` whenever a previously registered agent with
+2. Validates the agent code via :class:`~genus.growth.code_validator.CodeValidator`
+   before import (Phase 11c).
+3. Instantiates, initialises, and starts the agent.
+4. Registers the new agent's topics in the ``TopicRegistry``.
+5. Publishes ``agent.bootstrapped`` to signal successful integration.
+6. Publishes ``agent.deprecated`` whenever a previously registered agent with
    the same name is being replaced (and stops the old instance).
 
 In the GENUS growth flow the AgentBootstrapper sits at the very end of the
@@ -25,24 +27,28 @@ Topics published:
                                    with the same name already exists and is
                                    being replaced.
     - ``agent.bootstrap_failed`` — emitted when the generated module cannot be
-                                   imported (import-time exception).
+                                   imported or fails validation.
     - ``agent.start.failed``     — emitted when ``initialize()`` or ``start()``
                                    raises an exception.
 """
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import importlib.util
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from genus.communication.message_bus import Message, MessageBus
 from genus.communication.topic_registry import TopicEntry, TopicRegistry
 from genus.core.agent import Agent, AgentState
 from genus.dev.agents.agent_code_template import class_name_to_filename
+from genus.growth.code_validator import CodeValidator
+from genus.sandbox.models import SandboxResult
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +61,10 @@ _TOPIC_AGENT_START_FAILED = "agent.start.failed"
 
 # Default path for generated agent modules (relative to this file's package root)
 _DEFAULT_GENERATED_PATH = Path(__file__).parent.parent / "agents" / "generated"
+
+
+class AgentValidationError(Exception):
+    """Wird geworfen wenn generierter Agent-Code die Validierung nicht besteht."""
 
 
 def _utc_now() -> str:
@@ -72,16 +82,21 @@ class AgentBootstrapper(Agent):
 
     1. If an agent with the same name already exists: stops its instance (if
        running) and publishes ``agent.deprecated``.
-    2. Attempts to load the generated agent class via ``importlib``.  Falls
+    2. Validates the generated agent code statically via
+       :class:`~genus.growth.code_validator.CodeValidator` (always enabled).
+    3. Optionally runs a sandbox import-check via asyncio subprocess.
+    4. Attempts to load the generated agent class via ``importlib``.  Falls
        back to loading directly from the known file path when the module is not
        yet on ``sys.path``.
-    3. Instantiates, initialises, and starts the agent.
-    4. Registers the new agent's topics in the ``TopicRegistry``.
-    5. Records the new agent in ``_active_agents``.
-    6. Publishes ``agent.bootstrapped``.
+    5. Instantiates, initialises, and starts the agent.
+    6. Registers the new agent's topics in the ``TopicRegistry``.
+    7. Records the new agent in ``_active_agents``.
+    8. Publishes ``agent.bootstrapped``.
 
     On errors:
 
+    - Code validation failure → ``agent.bootstrap_failed`` (error_type:
+      ``"validation_failed"``); no crash.
     - Import-time exception (broken generated code) →  ``agent.bootstrap_failed``
       is published; no crash.
     - ``initialize()`` / ``start()`` exception → ``agent.start.failed`` is
@@ -94,7 +109,15 @@ class AgentBootstrapper(Agent):
         message_bus:           The MessageBus to subscribe to and publish on.
         topic_registry:        The :class:`~genus.communication.topic_registry.TopicRegistry`
                                in which newly registered topics will be
-                               recorded.
+                               recorded.  Optional — an internal empty registry
+                               is used when not provided.
+        sandbox_runner:        Optional object whose presence enables a sandbox
+                               import-check before loading.  When not ``None``,
+                               ``_run_sandbox_check`` spawns a subprocess that
+                               imports the module with a 10-second timeout.
+        code_validator:        Optional :class:`~genus.growth.code_validator.CodeValidator`
+                               instance.  Defaults to a fresh ``CodeValidator()``
+                               with standard settings (always active).
         agent_id:              Optional custom agent ID.  Auto-generated if not
                                provided.
         name:                  Optional human-readable agent name.  Defaults to
@@ -109,14 +132,20 @@ class AgentBootstrapper(Agent):
     def __init__(
         self,
         message_bus: MessageBus,
-        topic_registry: TopicRegistry,
+        topic_registry: Optional[TopicRegistry] = None,
+        sandbox_runner: Optional[Any] = None,
+        code_validator: Optional[CodeValidator] = None,
         agent_id: Optional[str] = None,
         name: Optional[str] = None,
         generated_agents_path: Optional[Path] = None,
     ) -> None:
         super().__init__(agent_id=agent_id, name=name or "AgentBootstrapper")
         self._bus = message_bus
-        self._topic_registry = topic_registry
+        self._topic_registry: TopicRegistry = (
+            topic_registry if topic_registry is not None else TopicRegistry()
+        )
+        self._sandbox: Optional[Any] = sandbox_runner
+        self._validator: CodeValidator = code_validator or CodeValidator()
         self._generated_agents_path: Path = (
             generated_agents_path
             if generated_agents_path is not None
@@ -147,7 +176,7 @@ class AgentBootstrapper(Agent):
     # Agent loading
     # ------------------------------------------------------------------
 
-    def _load_agent_class(self, agent_name: str) -> Optional[type]:
+    async def _load_agent_class(self, agent_name: str) -> Optional[type]:
         """Load the agent class *agent_name* from ``genus.agents.generated``.
 
         Tries ``importlib.import_module`` first.  If the module is not on
@@ -155,9 +184,8 @@ class AgentBootstrapper(Agent):
         file directly from ``self._generated_agents_path``.
 
         Any exception *other* than a plain ``ImportError`` (e.g.
-        ``SyntaxError`` in the generated file) is **not** caught here — it
-        bubbles up to ``process_message``, which catches it, logs it, and
-        publishes ``agent.bootstrap_failed``.
+        ``SyntaxError`` in the generated file, or :class:`AgentValidationError`)
+        is **not** caught here — it bubbles up to ``process_message``.
 
         Args:
             agent_name: CamelCase class name, e.g. ``"FamilyCalendarAgent"``.
@@ -165,24 +193,22 @@ class AgentBootstrapper(Agent):
         Returns:
             The agent class, or ``None`` when no module / file is found.
         """
-        # SECURITY-TODO: generated code runs without sandbox
         module_name = class_name_to_filename(agent_name)
         try:
             module = importlib.import_module(f"genus.agents.generated.{module_name}")
             return getattr(module, agent_name, None)
         except ImportError:
-            return self._load_agent_from_file(agent_name, module_name)
+            return await self._load_agent_from_file(agent_name, module_name)
 
-    def _load_agent_from_file(self, agent_name: str, module_name: str) -> Optional[type]:
-        """Fallback: load the agent class directly from a ``.py`` file.
+    async def _load_agent_from_file(self, agent_name: str, module_name: str) -> Optional[type]:
+        """Validate and load the agent class directly from a ``.py`` file.
 
-        Used when ``importlib.import_module`` fails because the generated
-        directory is not (yet) on ``sys.path``.
-
-        Any exception raised while executing the module (e.g. ``SyntaxError``,
-        ``ImportError`` of a missing dependency) is **not** caught here; it
-        bubbles up to the caller (``_load_agent_class``), which in turn lets it
-        propagate to ``process_message`` for error-event publishing.
+        Steps:
+        1. Read the file content.
+        2. Run static validation via :class:`~genus.growth.code_validator.CodeValidator`
+           (always enabled, even without a sandbox runner).
+        3. Optionally run a sandbox import-check (when ``self._sandbox`` is set).
+        4. Execute the module via ``importlib`` and return the agent class.
 
         Args:
             agent_name:  CamelCase class name.
@@ -190,11 +216,35 @@ class AgentBootstrapper(Agent):
 
         Returns:
             The agent class, or ``None`` when the file does not exist.
+
+        Raises:
+            AgentValidationError: When static validation or sandbox check fails.
         """
         path = self._generated_agents_path / f"{module_name}.py"
         if not path.exists():
             return None
 
+        # Step 1: Read code
+        code = path.read_text(encoding="utf-8")
+
+        # Step 2: Static validation (always, even without sandbox)
+        result = self._validator.validate(code, filename=str(path))
+        if not result.passed:
+            raise AgentValidationError(
+                f"Code validation failed for {path.name}: {'; '.join(result.errors)}"
+            )
+        for warning in result.warnings:
+            logger.warning("CodeValidator warning [%s]: %s", path.name, warning)
+
+        # Step 3: Sandbox import-check (optional)
+        if self._sandbox is not None:
+            sandbox_result = await self._run_sandbox_check(path)
+            if sandbox_result.exit_code != 0 or sandbox_result.timed_out:
+                raise AgentValidationError(
+                    f"Sandbox check failed for {path.name}: {sandbox_result.stderr}"
+                )
+
+        # Step 4: Import (safe — validation passed)
         spec = importlib.util.spec_from_file_location(
             f"genus.agents.generated.{module_name}", path
         )
@@ -204,6 +254,67 @@ class AgentBootstrapper(Agent):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
         return getattr(module, agent_name, None)
+
+    async def _run_sandbox_check(self, file_path: Path) -> SandboxResult:
+        """Spawn a subprocess that imports the module and captures the result.
+
+        Runs ``python -c "import sys; sys.path.insert(0, '.'); import <module>"``
+        with a 10-second timeout.  Uses the Python interpreter of the current
+        process (``sys.executable``).
+
+        Args:
+            file_path: Path to the ``.py`` file to check.
+
+        Returns:
+            :class:`~genus.sandbox.models.SandboxResult` with the subprocess
+            outcome.
+        """
+        import time
+
+        module_name = file_path.stem
+        code_arg = (
+            f"import sys; sys.path.insert(0, '.'); import {module_name}"
+        )
+        start_time = time.time()
+        timed_out = False
+        exit_code = 0
+        stdout_text = ""
+        stderr_text = ""
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                code_arg,
+                cwd=str(file_path.parent),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=10.0
+                )
+                exit_code = proc.returncode or 0
+                stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+                stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+            except asyncio.TimeoutError:
+                timed_out = True
+                proc.kill()
+                await proc.communicate()
+                stderr_text = "Sandbox import-check timed out after 10 seconds"
+                exit_code = -1
+        except Exception as exc:  # pragma: no cover
+            stderr_text = f"Sandbox subprocess error: {exc}"
+            exit_code = -1
+
+        duration_s = time.time() - start_time
+        return SandboxResult(
+            exit_code=exit_code,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            duration_s=duration_s,
+            timed_out=timed_out,
+        )
 
     async def _start_agent(
         self, agent_class: type, agent_id: str, agent_name: str
@@ -288,7 +399,24 @@ class AgentBootstrapper(Agent):
 
         # 2) Load the generated agent class
         try:
-            agent_class = self._load_agent_class(agent_name)
+            agent_class = await self._load_agent_class(agent_name)
+        except AgentValidationError as exc:
+            logger.error("Agent validation failed: %s", exc)
+            await self._bus.publish(
+                Message(
+                    topic=_TOPIC_AGENT_BOOTSTRAP_FAILED,
+                    payload={
+                        "agent_name": agent_name,
+                        "agent_id": new_agent_id,
+                        "domain": domain,
+                        "reason": str(exc),
+                        "error_type": "validation_failed",
+                        "failed_at": now,
+                    },
+                    sender_id=self.id,
+                )
+            )
+            return
         except Exception as exc:
             logger.error(
                 "AgentBootstrapper: failed to import %s: %s", agent_name, exc
