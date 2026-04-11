@@ -13,6 +13,7 @@ from genus.llm.models import LLMMessage, LLMRequest, LLMResponse, LLMRole
 from genus.llm.providers.base import LLMProvider, ProviderCapabilities
 from genus.llm.providers.mock_provider import MockProvider
 from genus.llm.providers.registry import ProviderRegistry
+from genus.llm.router import LLMRouter, RoutingStrategy, TaskType
 
 __all__ = [
     # Client
@@ -27,6 +28,10 @@ __all__ = [
     "ProviderCapabilities",
     "MockProvider",
     "ProviderRegistry",
+    # Router
+    "LLMRouter",
+    "RoutingStrategy",
+    "TaskType",
     # Credential store
     "CredentialStore",
     # Exceptions
