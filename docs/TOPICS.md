@@ -17,6 +17,8 @@ Alle Topics, die im GENUS-MessageBus verwendet werden, sind hier dokumentiert. J
 | `outcome.recorded` | `OutcomeCLI` / Operator | `FeedbackAgent` (→ RunJournal), `EventRecorderAgent` (→ EventStore) | `outcome`, `score_delta`, `source` | ✅ Ja | ✅ Ja (Default-Whitelist) |
 | `data.sanitized` | `DataSanitizerAgent` | `AnalysisAgent`, EventRecorder | `source`, `data`, `evidence` (inkl. `policy_id`, `policy_version`, `removed_fields`, `truncated_fields`, `blocked_by_policy`) | ✅ Ja | ⚙️ Opt-in (nicht in Default-Whitelist, siehe §2.1) |
 | `data.analyzed` | `AnalysisAgent` (Legacy) | `QualityAgent` (Legacy-Alias) | `classification` | ✅ Ja | ❌ Nein (veraltet, ersetzt durch `analysis.completed`) |
+| `dev.run.requested` | `ConversationAgent` | `lifespan` → `DevLoopOrchestrator` | `goal`, `run_id`, `source` | ✅ Ja | ❌ Nein |
+| `system.kill_switch.requested` | `ConversationAgent` | Operator / lifespan | `reason`, `source` | ❌ Nein | ❌ Nein |
 
 ---
 
