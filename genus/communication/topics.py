@@ -333,5 +333,12 @@ _r(TopicEntry(
     domain="growth",
     description="AgentBootstrapper hat einen alten Agenten als deprecated markiert.",
 ))
+_r(TopicEntry(
+    topic="growth.loop.started",
+    owner="GrowthBridge",
+    direction="publish",
+    domain="growth",
+    description="GrowthBridge hat einen DevLoop für einen Need gestartet.",
+))
 
 del _r

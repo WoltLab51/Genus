@@ -12,6 +12,8 @@ from genus.growth.need_record import NeedRecord
 from genus.growth.need_observer import NeedObserver
 from genus.growth.growth_orchestrator import GrowthOrchestrator
 from genus.growth.bootstrapper import AgentBootstrapper
+from genus.growth.growth_bridge import GrowthBridge
+from genus.growth.stub_dev_agent import StubDevAgent
 
 __all__ = [
     "IdentityProfile",
@@ -24,4 +26,6 @@ __all__ = [
     "NeedObserver",
     "GrowthOrchestrator",
     "AgentBootstrapper",
+    "GrowthBridge",
+    "StubDevAgent",
 ]
