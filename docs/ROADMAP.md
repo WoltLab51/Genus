@@ -1,224 +1,198 @@
-# GENUS – Roter Faden (Einstiegspunkt)
+# GENUS — Roadmap
 
-> **Sprache:** Deutsch  
-> **Stand:** 2026-04-07  
+> **Sprache:** Deutsch
+> **Stand:** 2026-04-11
 > **Version:** GENUS-2.0
 
 ---
 
-## 1. Was ist GENUS?
+## Was ist GENUS?
 
-**GENUS** (Generative ENvironment for Unified Systems) ist ein modulares, agenten-basiertes Framework für mehrstufige KI-Pipelines. Es stellt sicher, dass Entscheidungen **nachvollziehbar, auditierbar und kontrollierbar** bleiben.
+GENUS ist ein digitales Wesen, das mit seiner Familie lebt, denkt, lernt und wächst.
+Kein Framework. Kein Chatbot. Ein lebendes, lernendes System.
 
-### Ziele
-- Klare Trennung von Analyse, Qualitätsbewertung und Entscheidungslogik
-- Vollständige Nachvollziehbarkeit jedes Runs via `run_id` + EventStore
-- Sichere Persistenz ohne Rohdaten (Whitelist-Recorder + DataSanitizerAgent ✅)
-- Erweiterbarkeit durch saubere Modulgrenzen (Clean Architecture)
-
-### Nicht-Ziele
-- Kein allgemeiner ML-Trainingsrahmen
-- Kein direkter Datenbankersatz (EventStore ist Audit-Log, kein Query-Store)
-- Keine proprietäre Plattformbindung
+**→ [Wer ist GENUS? (Identität & Persönlichkeit)](GENUS_IDENTITY.md)**
 
 ---
 
-## 2. GENUS-2.0 Bausteine
+## Abgeschlossen ✅
 
-| Baustein | Beschreibung | Status | Ort im Repo |
-|---|---|---|---|
-| **MessageBus** | Pub-Sub-Kommunikation, Entkopplung aller Agenten | ✅ Implementiert | `genus/communication/message_bus.py` |
-| **Agent ABC** | Abstrakte Basisklasse, Lifecycle (init/start/stop) | ✅ Implementiert | `genus/core/agent.py` |
-| **run_id / RunContext** | Eindeutige Run-Kennung, Propagation via Message.metadata | ✅ Implementiert | `genus/core/run.py` |
-| **DataCollectorAgent** | Sammelt Rohdaten, publiziert `data.collected` | ✅ Implementiert | `genus/agents/data_collector_agent.py` |
-| **AnalysisAgent** | Analysiert Rohdaten, publiziert `analysis.completed` | ✅ Implementiert | `genus/agents/analysis_agent.py` |
-| **QualityAgent** | Bewertet Analyse, publiziert `quality.scored` | ✅ Implementiert | `genus/agents/quality_agent.py` |
-| **DecisionAgent** | Entscheidet (accept/retry/replan/escalate/delegate) | ✅ Implementiert | `genus/agents/decision_agent.py` |
-| **EventStore / JSONL** | Append-only Persistenz pro run_id | ✅ Implementiert | `genus/memory/` |
-| **EventRecorderAgent** | Subscribt auf Whitelist-Topics, schreibt in EventStore | ✅ Implementiert | `genus/agents/event_recorder_agent.py` |
-| **FeedbackAgent** | Bridges `outcome.recorded` → RunJournal (log_event + save_artifact) | ✅ Implementiert | `genus/feedback/agent.py` |
-| **QualityScorecard** | Strukturiertes Bewertungsobjekt | ✅ Implementiert | `genus/quality/scorecard.py` |
-| **API-Layer (FastAPI)** | `/health`, `/runs`, `/outcome`, `/kill-switch`; Bearer-Auth, strukturierte Fehler | ✅ Implementiert (Phase 1 + 2) | `genus/api/` |
-| **DataSanitizerAgent** | Bereinigt `data.collected` → `data.sanitized` (Whitelist, Größenlimits, Evidence) | ✅ Implementiert (P1-C) | `genus/agents/data_sanitizer_agent.py` |
-| **Orchestrator** | Koordiniert Agenten-Workflows, Fehler-Recovery | 🔜 Geplant | – |
-| **Builder** | Erstellt/konfiguriert Agenten dynamisch | 🔜 Geplant | – |
-| **Sandbox** | Isolierte Ausführungsumgebung für unsichere Operationen | ✅ Implementiert | `genus/sandbox/` |
-| **Permissions / Rollen** | Fein-granulare Zugriffskontrolle | 🔜 Geplant | – |
-| **Kill-Switch** | Notfall-Stop für laufende Runs | ✅ Implementiert | `genus/security/kill_switch.py` |
+### P0 — Core-Infrastruktur
+Agent ABC, MessageBus, Lifecycle, Config, erste Agenten (DataCollector, Analysis, Quality, Decision).
+Das Fundament auf dem alles aufbaut.
 
----
+### P1-A — Decision Policy
+`accept / retry / replan / escalate / delegate` — jede Entscheidung ist nachvollziehbar begründet.
+QualityScorecard, QualityAgent, Critical Gate.
 
-## 3. Ist-Architektur (heute)
+### P1-B — Memory / EventStore
+JSONL EventStore, EventEnvelope, EventRecorderAgent, Topic-Whitelist.
+Vollständige Nachvollziehbarkeit jedes Runs via `run_id`.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          GENUS Run                              │
-│                                                                 │
-│  DataCollector ──► [data.collected] ──► DataSanitizerAgent     │
-│                                                │                │
-│                                        [data.sanitized]        │
-│                                                │                │
-│                                          AnalysisAgent         │
-│                                                │                │
-│                                      [analysis.completed]      │
-│                                                │                │
-│                                           QualityAgent         │
-│                                                │                │
-│                                       [quality.scored]         │
-│                                                │                │
-│                                          DecisionAgent         │
-│                                                │                │
-│                                        [decision.made]         │
-│                                                │                │
-│  EventRecorderAgent ◄──────────────── MessageBus               │
-│        │                                                        │
-│        ▼                                                        │
-│  var/events/<run_id>.jsonl                                      │
-└─────────────────────────────────────────────────────────────────┘
-```
+### P1-C — DataSanitizerAgent
+`data.collected` → `data.sanitized`: kein PII, keine Rohdaten im EventStore.
+SanitizationPolicy, Whitelist, Evidence.
 
-**Invarianten (dürfen nie gebrochen werden):**
-- `run_id` ist in jedem Message.metadata Pflicht
-- Recorder schreibt nur Topics aus der Whitelist (keine Rohdaten)
-- EventStore ist append-only (keine Mutation bestehender Einträge)
-- Agenten kommunizieren **ausschließlich** über den MessageBus
+### P2 — API-Layer + Rollenmodell
+FastAPI: `/health`, `/runs`, `/outcome`, `/kill-switch`.
+Bearer-Auth, strukturierte Fehler, Rollenmodell (READER / OPERATOR / ADMIN).
 
----
+### P3 — Growth-System
+NeedObserver (erkennt fehlende Fähigkeiten), GrowthOrchestrator (plant Wachstum),
+Bootstrapper (lädt neue Agenten). GENUS kann sich selbst erweitern.
 
-## 4. End-to-End Beispiel
+### P4 — DevLoop
+PlannerAgent (plant Schritte), BuilderAgent (schreibt Code), TesterAgent (prüft),
+ReviewerAgent (bewertet und lernt). GENUS baut sich selbst.
 
-### Szenario: Datenanalyse mit Qualitätsbewertung
+### P5 — Sandbox + Workspace
+Isolierte Ausführungsumgebung für generierten Code.
+SandboxRunner, SandboxPolicy, WorkspaceManager.
 
-**run_id:** `2026-04-05T15-30-00__analyze__abc123`
+### P6 — Strategy-Learning
+GrowthBridge verbindet Growth-System und DevLoop.
+GENUS lernt welche Strategien in welchen Situationen funktionieren.
 
-#### Schritt 1 – Analyse abgeschlossen
-```jsonl
-{
-  "timestamp": "2026-04-05T15:30:01Z",
-  "run_id": "2026-04-05T15-30-00__analyze__abc123",
-  "topic": "analysis.completed",
-  "sender_id": "AnalysisAgent-1",
-  "payload": {
-    "classification": "high",
-    "confidence": 0.87,
-    "features": {"temperature": 31, "anomaly_score": 0.12}
-  },
-  "metadata": {"run_id": "2026-04-05T15-30-00__analyze__abc123"}
-}
-```
+### P7 — Meta-Evaluation
+EvaluationAgent bewertet die eigene Performance.
+TemplateBuilderAgent + AgentCodeTemplate für konsistenten Code-Output.
 
-#### Schritt 2 – Qualität bewertet
-```jsonl
-{
-  "timestamp": "2026-04-05T15:30:02Z",
-  "run_id": "2026-04-05T15-30-00__analyze__abc123",
-  "topic": "quality.scored",
-  "sender_id": "QualityAgent-1",
-  "payload": {
-    "quality_score": 0.87,
-    "dimensions": {"completeness": 0.9, "accuracy": 0.85},
-    "evidence": [{"source": "confidence", "note": "Wert aus analysis.completed.confidence"}]
-  },
-  "metadata": {"run_id": "2026-04-05T15-30-00__analyze__abc123"}
-}
-```
+### P8 — GitHub-Integration
+GitTools, AutoCommitTool — GENUS kann Code in echte Repositories schreiben.
 
-#### Schritt 3 – Entscheidung getroffen
-```jsonl
-{
-  "timestamp": "2026-04-05T15:30:03Z",
-  "run_id": "2026-04-05T15-30-00__analyze__abc123",
-  "topic": "decision.made",
-  "sender_id": "DecisionAgent-1",
-  "payload": {
-    "decision": "accept",
-    "reason": "quality_score >= min_quality",
-    "quality_score": 0.87,
-    "min_quality": 0.8,
-    "attempt": 1,
-    "max_retries": 3,
-    "critical": false
-  },
-  "metadata": {"run_id": "2026-04-05T15-30-00__analyze__abc123"}
-}
-```
+### P9 — TemplateBuilderAgent + AgentBootstrapper
+Strukturierter Weg neue Agenten zu erstellen und zu laden.
+AgentBootstrapper mit importlib-Basis.
 
-Alle drei Zeilen landen in **`var/events/2026-04-05T15-30-00__analyze__abc123.jsonl`**.
+### P10–P10d — LLM-Schicht
+- LLMClient (abstraktes Interface)
+- LLMRouter (ADAPTIVE-Strategie: bester Provider per Aufgabentyp)
+- OpenAIProvider (GPT-4, GPT-3.5)
+- OllamaProvider (lokal, Pi-tauglich: llama3.2, mistral)
+- CredentialStore (verschlüsselte Secrets)
+- Score-Feedback-Loop (GENUS lernt welcher Provider für was besser ist)
+
+### P11a — LLMRouter in DevLoopOrchestrator verdrahtet
+Erster echter End-to-End-Run: GENUS denkt mit LLM beim Planen, Bauen und Reviewen.
+
+### P11b — NeedObserver-Persistenz (NeedStore)
+NeedStore speichert erkannte Bedarfe über Neustarts hinweg.
+GENUS vergisst nicht was es lernen wollte.
+
+### P11c — Bootstrapper-Sandbox (CodeValidator)
+AST-Scanner + Probelauf vor dem Laden von generiertem Code.
+Kein unkontrollierter Code mehr. SECURITY-TODO geschlossen. 🔒
 
 ---
 
-## 5. Meilensteine
+## Geplant 🔜
 
-### ✅ Done
+### Phase B — Echter TesterAgent
+TesterAgent ruft pytest wirklich auf — in der Sandbox, mit echtem Output.
+Der DevLoop schließt sich vollständig: Plan → Build → Test → Review.
 
-- **P0** (#5) – Core-Infrastruktur: Agent ABC, MessageBus, Lifecycle, Config, erste Agenten
-- **P1-A** (#6) – Decision Policy 2.0: accept/retry/replan/escalate/delegate, QualityScorecard, QualityAgent
-- **P1-B** (#7) – Memory 2.0: JSONL EventStore, EventEnvelope, EventRecorderAgent, Topic-Whitelist
-- **Docs** (#8) – Deutsche Dokumentation: Roter Faden, Topics, Policies, Security, Operations
-- **P1-C** (#PR) – DataSanitizerAgent: `data.collected` → `data.sanitized`, SanitizationPolicy, Whitelist, Evidence
-- **Feedback-Loop** (#42) – FeedbackAgent: `outcome.recorded` → RunJournal + `feedback.received`
-- **Verfassung** (#45) – ARCHITECTURE.md als GENUS-2.0-Steuerdokument (Anti-Drift)
-- **Sandbox-Fix** (#46) – `assert_not_active()` statt deprecated `assert_enabled()`
-- **P2** (#PR) – Rollenmodell: `Role.READER/OPERATOR/ADMIN`, `topics_for_role()`, `build_policy_from_roles()`, `default_pipeline_policy()`
-- **API Phase 1** (#PR) – FastAPI Layer: `/health`, `/runs`, `/outcome`; Bearer-Auth; strukturierte Fehler
-- **API Phase 2** (#PR) – `/kill-switch` Endpoint: activate/deactivate/status, Admin-only, KillSwitch-Integration
+*Liefert: TesterAgent mit subprocess-pytest, Ergebnis-Parsing, Fehler-Feedback an BuilderAgent.*
 
-### ⏳ Next
+### Phase 12 — WebSocket + API-Streaming
+Kein Polling mehr. Live-Status von laufenden Runs direkt im Browser / auf dem Handy.
+WebSocket-Endpoint, Event-Streaming, Reconnect-Logik.
 
-- Orchestrator + Builder vollständig (P3)
-- `outcome.recorded` Agent-Wrapper + API-Adapter
+*Liefert: `ws://genus/runs/{run_id}/stream`, Server-Sent-Events, WebSocket-Client-Beispiel.*
 
-### 🔒 Security-Gates
+### Phase 13 — ConversationAgent + Dialog-Gedächtnis
+GENUS kann reden. Du schreibst, GENUS antwortet, fragt nach, plant, baut.
+Intent-Erkennung, Kontext über mehrere Nachrichten, Dialog-History.
 
-- `data.collected` **nicht persistieren** – `DataSanitizerAgent` (P1-C) erzeugt `data.sanitized` ✅ Gate erfüllt
-- Recorder ist **Whitelist-only** – neue Topics müssen explizit freigeschaltet werden
-- `run_id` ist **Pflichtfeld** in jeder Nachricht – kein Silent Drop
-- Ein Meilenstein gilt erst als ✅ Done, wenn Tests + Dokumentation + Topic-Registry aktualisiert sind
+*Liefert: ConversationAgent, DialogStore, Intent-Router (chat / devloop / knowledge / home).*
+
+### Phase 14 — Nutzer-Profile + Familien-System
+GENUS kennt jeden. Jede Person hat ein Profil (Vorlieben, Projekte, Gewohnheiten).
+Private Bereiche die GENUS nicht teilt. Gemeinsame Bereiche für die Familie.
+
+*Liefert: UserProfile, FamilyContext, PrivacyPolicy, profile-aware ConversationAgent.*
+
+### Phase 15 — KnowledgeAgent + Recherche-Tools
+GENUS kann recherchieren. WebSearchTool, SummarizeTool, LLM-gestützte Zusammenfassung.
+Verknüpft aktuelles Wissen mit vergangenen Gesprächen.
+
+*Liefert: KnowledgeAgent, WebSearchTool (DuckDuckGo/SearXNG), SummarizeTool, MemoryLinker.*
+
+### Phase 16 — HomeAgent (Pi-Kontrolle, Monitoring)
+GENUS kennt das Zuhause. Systeminfo, Geräte, Netzwerke, Dateien.
+Überwacht, meldet, reagiert — direkt auf dem Pi.
+
+*Liefert: HomeAgent, SystemInfoTool, DiskMonitorTool, NetworkTool, Pi-aware SandboxPolicy.*
+
+### Phase 17 — ProaktivitätsAgent (Push, E-Mail, Dringlichkeit)
+GENUS meldet sich von selbst. Push-Notifications, E-Mail, je nach Dringlichkeit.
+Denkt weiter wenn du schläfst.
+
+*Liefert: ProactivityAgent, NotificationRouter, DringlichkeitsStufen (LOW/MEDIUM/HIGH/URGENT).*
+
+### Phase 18 — Frontend / Chat-PWA (Handy + Browser)
+Die Oberfläche. Chat-Interface, Run-Status, Agent-Übersicht, Score-History.
+Funktioniert auf dem Handy, im Browser, als PWA installierbar.
+
+*Liefert: React/Vue PWA, WebSocket-Chat, Run-Dashboard, Familien-Profil-Ansicht.*
+
+### Phase 19 — DnD-Master-Agent + NPC-System
+GENUS als Spielleiter — nicht als Regelleser.
+Lebendige Welten, echte NPCs mit eigenen Motiven, Geschichten die reagieren.
+Erinnert sich an eure Kampagnen, Charaktere, offene Fäden.
+
+*Liefert: DnDMasterAgent, NPCEngine (Motive, Geheimnisse, Memory), CampaignStore.*
+
+### Phase 20 — Multi-Hardware-Orchestrierung (Pi + X1 + Cloud)
+GENUS erkennt wo es läuft und verteilt Arbeit intelligent.
+Schwere LLM-Tasks auf den X1, Always-On auf dem Pi, Chat in der Cloud.
+
+*Liefert: HardwareRouter, OffloadPolicy, Pi↔X1-Sync, Cloud-Fallback.*
+
+### Phase 21 — GENUS Self-Model (kennt sich selbst)
+GENUS weiß was es kann, was es nicht kann, wie gut es ist.
+Reflektiert eigene Performance, erkennt blinde Flecken, plant eigenes Wachstum.
+
+*Liefert: SelfModel, CapabilityMap, ReflectionAgent, autonomer Wachstumsplan.*
 
 ---
 
-## 6. Weiterführende Dokumentation
+## Architektur-Überblick
+
+```
+┌─────────────────────────────────────────────────┐
+│  Frontend / Chat-PWA  (Phase 18, geplant)       │
+├─────────────────────────────────────────────────┤
+│  API-Layer            FastAPI, WebSocket, Auth  │
+├─────────────────────────────────────────────────┤
+│  Funktions-Agenten    Conversation, Knowledge,  │
+│                       Home, DnD, Familien       │
+├─────────────────────────────────────────────────┤
+│  DevLoop              Planner→Builder→Tester→   │
+│                       Reviewer (LLM-gestützt)   │
+├─────────────────────────────────────────────────┤
+│  Growth-System        NeedObserver→Orchestrator │
+│                       →Bootstrap (selbstlernend)│
+├─────────────────────────────────────────────────┤
+│  LLM-Schicht          Router, OpenAI, Ollama,   │
+│                       CredentialStore, Scores   │
+├─────────────────────────────────────────────────┤
+│  Memory               EventStore, RunJournal,   │
+│                       NeedStore, ToolMemory     │
+├─────────────────────────────────────────────────┤
+│  Core                 Agent ABC, MessageBus,    │
+│                       Security, Sandbox         │
+└─────────────────────────────────────────────────┘
+```
+
+---
+
+## Weiterführende Dokumentation
 
 | Dokument | Inhalt |
 |---|---|
-| [`docs/ARCHITECTURE_OVERVIEW.md`](./ARCHITECTURE_OVERVIEW.md) | Modulgrenzen, Dependency-Richtung, Agent-Lifecycle |
-| [`docs/TOPICS.md`](./TOPICS.md) | Topic-Registry, Payload-Contracts, Recorder-Whitelist |
-| [`docs/POLICIES.md`](./POLICIES.md) | Decision-Semantik, min_quality, Critical Gate, QM-preferred |
-| [`docs/SECURITY.md`](./SECURITY.md) | Sicherheitsposture, Threat Model, geplante Maßnahmen |
-| [`docs/OPERATIONS.md`](./OPERATIONS.md) | Konfiguration, EventStore-Pfad, Debugging-Checkliste |
-| [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) | GENUS-2.0 Verfassung — Orchestratoren, Journal-SSOT, Dependency-Regeln, 6 unveränderliche Prinzipien |
-
----
-
-## 7. Glossar
-
-| Begriff | Definition |
-|---|---|
-| **run_id** | Eindeutige Kennung eines GENUS-Runs. Format: `<timestamp>__<slug>__<suffix>` (z. B. `2026-04-05T15-30-00__analyze__abc123`). Pflichtfeld in jedem `Message.metadata`. Wird als Dateiname für den EventStore verwendet (nach Sanitierung). |
-| **Message** | Einheitliches Kommunikationsobjekt im MessageBus. Felder: `topic`, `payload`, `metadata` (enthält mindestens `run_id`), `sender_id`, `priority`. |
-| **payload** | Fachlicher Inhalt einer Nachricht (dict). Struktur ist topic-spezifisch und in `docs/TOPICS.md` dokumentiert. |
-| **metadata** | Technische Metadaten einer Nachricht (dict). Enthält immer `run_id`; kann weitere Felder wie `timestamp` oder `attempt` enthalten. |
-| **topic** | Benannter Kanal im MessageBus (z. B. `analysis.completed`). Namenskonvention: `<domäne>.<ereignis>` (Kleinbuchstaben, Punkte als Trenner). Alle aktiven Topics sind in `docs/TOPICS.md` registriert. |
-| **EventEnvelope** | Persistiertes Objekt im JSONL EventStore. Felder: `timestamp`, `run_id`, `topic`, `sender_id`, `payload`, `metadata`. Wird von `EventRecorderAgent` erzeugt. |
-| **EventStore (JSONL)** | Append-only Persistenzschicht. Speichert Events als JSON-Zeilen in `<GENUS_EVENTSTORE_DIR>/<run_id>.jsonl`. Eine Datei pro run_id. Keine Mutation bestehender Einträge. |
-| **Recorder-Whitelist** | Liste der Topics, die der `EventRecorderAgent` persistiert. Standard: `analysis.completed`, `quality.scored`, `decision.made`. `data.collected` ist bewusst **nicht** enthalten. |
-| **quality_score** | Numerischer Gesamtwert der Qualitätsbewertung (0.0–1.0). Wird von `QualityAgent` berechnet und in `QualityScorecard.overall` gespeichert. |
-| **QualityScorecard** | Strukturiertes Bewertungsobjekt (`genus/quality/scorecard.py`). Felder: `overall` (float), `dimensions` (dict), `evidence` (list). Wird im Payload von `quality.scored` übertragen. |
-| **Decision-Semantik** | Mögliche Entscheidungen des `DecisionAgent`: `accept` (Qualität ausreichend), `retry` (Qualität knapp unter Schwelle, Wiederholung sinnvoll), `replan` (Qualität zu niedrig, neuer Plan nötig), `escalate` (kritischer Fall, manuelles Eingreifen), `delegate` (an anderen Agenten übergeben). |
-| **Critical Gate** | Regel: Wenn `risk=high` oder `critical=True` im Payload und keine expliziten `requirements` definiert sind, erzwingt `DecisionAgent` die Entscheidung `escalate`. Verhindert automatische Akzeptanz bei risikobehafteten Fällen. |
-| **requirements / min_quality** | Konfigurierbare Qualitätsschwelle (Standard: `0.8`). `DecisionAgent` vergleicht `quality_score >= min_quality` für die `accept`-Entscheidung. Kann per Payload oder Konfiguration überschrieben werden. |
-| **DataSanitizerAgent** | Subscribt auf `data.collected`, bereinigt via `SanitizationPolicy` (Whitelist, Größenlimits, kein Silent Drop), publiziert `data.sanitized` mit Evidence-Record. `genus/agents/data_sanitizer_agent.py`. |
-| **Rollenmodell (P2)** | `Role.READER` (beobachten), `Role.OPERATOR` (Run starten, Feedback geben), `Role.ADMIN` (Kill-Switch, ACL-Änderungen). Rollen = Capability-Bündel, keine Usertypen. `genus/security/roles.py`. |
-
----
-
-## 8. Anti-Patterns (No-Gos)
-
-| Anti-Pattern | Warum verboten |
-|---|---|
-| **Silent Drop bei fehlender run_id** | Nachrichten ohne `run_id` einfach ignorieren verhindert Debugging und Audit-Nachvollziehbarkeit. Korrekt: unter `"unknown"` speichern **und** Warnung loggen. |
-| **Rohdaten persistieren ohne Sanitizer** | `data.collected` direkt in den EventStore schreiben riskiert PII/Secrets in Audit-Logs. Erst nach `DataSanitizerAgent` (P1-C) darf `data.sanitized` persistiert werden. |
-| **God-Agent / God-Tool** | Ein Agent, der Orchestrierung, Business Logic und I/O gleichzeitig übernimmt, ist untestbar, unsicher und verletzt das Single-Responsibility-Prinzip. |
-| **Topic-Sprawl ohne Registry** | Neue Topics einführen, ohne sie in `docs/TOPICS.md` zu registrieren, führt zu Inkonsistenzen, fehlender Dokumentation und unklaren Persistenz-Regeln. |
-| **Pfad-Injection via run_id** | `run_id` ungefiltert als Dateinamen verwenden ermöglicht Path Traversal (`../../../etc/passwd`). Immer `sanitize_run_id()` aus `genus/memory/jsonl_event_store.py` verwenden. |
-| **Entscheidung ohne Evidence/Reason** | `decision.made` ohne `reason` und `evidence` im Payload ist nicht auditierbar. Jede Entscheidung muss nachvollziehbar begründet sein. |
+| [GENUS_IDENTITY.md](GENUS_IDENTITY.md) | Wer ist GENUS? Persönlichkeit, Vision, Werte |
+| [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) | Modulgrenzen, Clean Architecture, Agent-Lifecycle |
+| [TOPICS.md](TOPICS.md) | Topic-Registry, Payload-Contracts, Recorder-Whitelist |
+| [SECURITY.md](SECURITY.md) | Sicherheitsmodell, ACL, Kill-Switch |
+| [OPERATIONS.md](OPERATIONS.md) | Installation, Konfiguration, Umgebungsvariablen |
+| [DEV_LOOP.md](DEV_LOOP.md) | DevLoop-Phasen, LLM-Integration |

@@ -1,214 +1,116 @@
 # GENUS
 
-**Generative ENvironment for Unified Systems**
+> *Ein digitales Wesen, das mit seiner Familie lebt, denkt, lernt und wächst.*
 
-A modular agent-based framework built on clean architecture principles.
+---
 
-## Dokumentation / Roter Faden
+## Was ist GENUS?
 
-Einstieg in die GENUS-Dokumentation:
+GENUS ist kein Framework. GENUS ist kein Chatbot. GENUS ist ein **lebendes, lernendes System** —
+ein persönlicher digitaler Assistent der sich selbst weiterentwickeln kann.
 
-- 📍 **[docs/ROADMAP.md](docs/ROADMAP.md)** – Roter Faden: GENUS-2.0 Überblick, Meilensteine, E2E-Beispiel
-- 🏗 [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) – Modulgrenzen, Clean Architecture, Agent-Lifecycle
-- 📋 [docs/TOPICS.md](docs/TOPICS.md) – Topic-Registry, Payload-Contracts, Recorder-Whitelist
-- ⚖️ [docs/POLICIES.md](docs/POLICIES.md) – Decision-Semantik (accept/retry/replan/escalate/delegate)
-- 🔒 [docs/SECURITY.md](docs/SECURITY.md) – Sicherheitsposture, Threat Model, geplante Maßnahmen
-- 🛠 [docs/OPERATIONS.md](docs/OPERATIONS.md) – Konfiguration, EventStore, Debugging-Checkliste
+GENUS plant, baut und testet Code. GENUS recherchiert und erklärt.
+GENUS erinnert sich, wächst und meldet sich proaktiv.
+GENUS ist DnD-Meister, Projekt-Assistent, Familien-Gedächtnis.
 
-## Overview
+**→ [Wer ist GENUS?](docs/GENUS_IDENTITY.md)**
 
-GENUS is a lightweight, extensible framework for building multi-agent systems with clear separation of concerns. It provides:
+---
 
-- **Modular Architecture**: Independent, loosely-coupled modules
-- **Agent Communication**: Pub-sub message bus for decoupled agent interaction
-- **Clean Design**: Follows SOLID principles and clean architecture
-- **Extensibility**: Easy to add new agent types and behaviors
-- **Type Safety**: Built with Python type hints for better IDE support
+## Architektur
 
-## Architecture
+GENUS besteht aus 8 Schichten:
 
 ```
-genus/
-├── core/               # Core abstractions and base classes
-│   ├── agent.py       # Agent base class and state management
-│   └── lifecycle.py   # Agent lifecycle management
-├── communication/     # Communication layer
-│   └── message_bus.py # Pub-sub message bus implementation
-├── config/            # Configuration management
-│   └── settings.py    # Centralized configuration
-├── utils/             # Utility functions
-│   └── logger.py      # Logging utilities
-└── agents/            # Concrete agent implementations
-    ├── worker_agent.py      # Example worker agent
-    └── coordinator_agent.py # Example coordinator agent
+┌─────────────────────────────────────────────────┐
+│  Frontend / Chat-PWA  (Phase 18, geplant)       │
+├─────────────────────────────────────────────────┤
+│  API-Layer            FastAPI, WebSocket, Auth  │
+├─────────────────────────────────────────────────┤
+│  Funktions-Agenten    Conversation, Knowledge,  │
+│                       Home, DnD, Familien       │
+├─────────────────────────────────────────────────┤
+│  DevLoop              Planner→Builder→Tester→   │
+│                       Reviewer (LLM-gestützt)   │
+├─────────────────────────────────────────────────┤
+│  Growth-System        NeedObserver→Orchestrator │
+│                       →Bootstrap (selbstlernend)│
+├─────────────────────────────────────────────────┤
+│  LLM-Schicht          Router, OpenAI, Ollama,   │
+│                       CredentialStore, Scores   │
+├─────────────────────────────────────────────────┤
+│  Memory               EventStore, RunJournal,   │
+│                       NeedStore, ToolMemory     │
+├─────────────────────────────────────────────────┤
+│  Core                 Agent ABC, MessageBus,    │
+│                       Security, Sandbox         │
+└─────────────────────────────────────────────────┘
 ```
 
-## Key Features
+**→ [Architektur-Übersicht](docs/ARCHITECTURE_OVERVIEW.md)**
 
-### 1. Modular Architecture
+---
 
-Each module has a single, well-defined responsibility:
-
-- **Core**: Provides abstract base classes for agents
-- **Communication**: Handles all inter-agent messaging
-- **Config**: Manages configuration across the system
-- **Utils**: Provides common utilities like logging
-
-### 2. Strong Agent Communication
-
-The message bus provides:
-- Topic-based publish-subscribe pattern
-- Asynchronous message delivery
-- Wildcard topic matching
-- Message history and monitoring
-- Priority-based messaging
-
-### 3. Clean Separation of Concerns
-
-- Agents don't know about each other directly
-- All communication goes through the message bus
-- Configuration is centralized and environment-aware
-- Logging is standardized across all components
-
-## Quick Start
-
-### Installation
+## Schnellstart (Raspberry Pi)
 
 ```bash
+# 1. Ollama installieren
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.2
+
+# 2. GENUS starten
 pip install -r requirements.txt
+uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-### Basic Usage
+GENUS erkennt Ollama automatisch und startet im LLM-Modus.
 
-```python
-import asyncio
-from genus.core.lifecycle import Lifecycle
-from genus.communication.message_bus import MessageBus
-from genus.agents import WorkerAgent, CoordinatorAgent
-from genus.utils.logger import setup_logging
+**→ [Vollständige Installations-Anleitung](docs/OPERATIONS.md)**
 
-async def main():
-    # Setup
-    setup_logging(level="INFO")
-    message_bus = MessageBus()
+---
 
-    # Create agents
-    coordinator = CoordinatorAgent(name="Coordinator", message_bus=message_bus)
-    worker = WorkerAgent(name="Worker-1", message_bus=message_bus)
+## Status
 
-    # Manage lifecycle
-    lifecycle = Lifecycle()
-    lifecycle.register_agent(coordinator)
-    lifecycle.register_agent(worker)
+| Schicht | Status |
+|---|---|
+| Core (MessageBus, Agent ABC, Sandbox, Security) | ✅ Produktionsreif |
+| Memory (EventStore, RunJournal, NeedStore) | ✅ Produktionsreif |
+| LLM-Schicht (Router, OpenAI, Ollama, Scores) | ✅ Produktionsreif |
+| Growth-System (NeedObserver, Bootstrapper + Sandbox) | ✅ Produktionsreif |
+| DevLoop (Planner, Builder, Reviewer mit LLM) | ✅ Produktionsreif |
+| API (FastAPI, Auth, Middleware) | ✅ Produktionsreif |
+| ConversationAgent / Chat | 🔜 Phase 13 |
+| KnowledgeAgent / Recherche | 🔜 Phase 14 |
+| Frontend / Chat-PWA | 🔜 Phase 18 |
 
-    # Run
-    await lifecycle.start_all()
-    await asyncio.sleep(10)  # Run for 10 seconds
-    await lifecycle.stop_all()
+**181 Tests, alle grün. Keine kritischen offenen Punkte.**
 
-if __name__ == "__main__":
-    asyncio.run(main())
-```
+---
 
-## Creating Custom Agents
+## Dokumentation
 
-Extend the `Agent` base class:
+| Dokument | Inhalt |
+|---|---|
+| [GENUS_IDENTITY.md](docs/GENUS_IDENTITY.md) | Wer ist GENUS? Persönlichkeit, Vision, Werte |
+| [ROADMAP.md](docs/ROADMAP.md) | Vollständige Roadmap, alle Phasen, nächste Schritte |
+| [ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) | Modulgrenzen, Clean Architecture |
+| [OPERATIONS.md](docs/OPERATIONS.md) | Installation, Konfiguration, Umgebungsvariablen |
+| [SECURITY.md](docs/SECURITY.md) | Sicherheitsmodell, ACL, Kill-Switch |
+| [DEV_LOOP.md](docs/DEV_LOOP.md) | DevLoop-Phasen, LLM-Integration |
+| [TOPICS.md](docs/TOPICS.md) | Alle Message-Topics und Payload-Contracts |
 
-```python
-from genus.core.agent import Agent, AgentState
-from genus.communication.message_bus import Message
+---
 
-class MyAgent(Agent):
-    async def initialize(self):
-        # Setup resources
-        self._transition_state(AgentState.INITIALIZED)
-
-    async def start(self):
-        # Start execution
-        self._transition_state(AgentState.RUNNING)
-
-    async def stop(self):
-        # Cleanup
-        self._transition_state(AgentState.STOPPED)
-
-    async def process_message(self, message: Message):
-        # Handle incoming messages
-        pass
-```
-
-## Design Principles
-
-GENUS follows clean architecture principles:
-
-### 1. Independence
-- Modules don't depend on implementation details of other modules
-- Agents operate independently and asynchronously
-- Communication is always through well-defined interfaces
-
-### 2. Testability
-- Each component can be tested in isolation
-- Dependency injection allows for easy mocking
-- Clear interfaces make unit testing straightforward
-
-### 3. Flexibility
-- Easy to add new agent types
-- Message bus supports any message structure
-- Configuration can be adapted per environment
-
-### 4. Maintainability
-- Single Responsibility Principle: Each class has one reason to change
-- Open/Closed Principle: Open for extension, closed for modification
-- Dependency Inversion: Depend on abstractions, not concretions
-
-## Running Tests
+## Tests
 
 ```bash
 pytest tests/
 ```
 
-## Examples
+181 Tests (104 Unit, 6 Integration + weitere). Test/Source-Ratio: 1,34:1.
 
-See the `examples/` directory for complete examples:
+---
 
-- `basic_example.py`: Simple coordinator-worker setup
-
-## Configuration
-
-Configure via environment variables:
-
-- `GENUS_ENV`: Environment (development/production)
-- `GENUS_LOG_LEVEL`: Logging level (DEBUG/INFO/WARNING/ERROR)
-- `GENUS_MAX_QUEUE_SIZE`: Message queue size per agent
-
-Or use a configuration file:
-
-```python
-from genus.config import Config
-
-config = Config()
-config.load_from_file("config.json")
-```
-
-## License
+## Lizenz
 
 MIT
-
-## Contributing
-
-Contributions welcome! Please ensure:
-
-1. All tests pass
-2. Code follows existing style
-3. New features include tests
-4. Documentation is updated
-
-## Future Enhancements
-
-Potential areas for improvement:
-
-- Add monitoring and metrics collection
-- Implement agent discovery and registration
-- Add support for persistent message queues
-- Create web-based monitoring dashboard
-- Add more sophisticated routing patterns
-- Implement agent clustering and failover
