@@ -5,9 +5,12 @@ Subscribes to dev.test.requested and publishes dev.test.completed or
 dev.test.failed.
 
 PR #28: Now supports real test execution via SandboxRunner.
+Phase B: Parses pytest output for structured results (passed, failed, errors,
+         failures details, duration, status).
 """
 
-from typing import Awaitable, Callable, List, Literal, Optional, Tuple
+import re
+from typing import Awaitable, Callable, Dict, List, Literal, Optional, Tuple
 from genus.communication.message_bus import Message, MessageBus
 from genus.dev import events, topics
 from genus.dev.agents.base import DevAgentBase
@@ -153,15 +156,26 @@ class TesterAgent(DevAgentBase):
                 timeout_s=120.0,
             )
 
-            # Build report from sandbox result
-            # For v1, we provide basic info: exit_code, timed_out, stdout/stderr summary
-            report = {
+            # Parse pytest output for structured results (Phase B)
+            combined_output = (result.stdout or "") + (result.stderr or "")
+            parsed = self._parse_pytest_output(combined_output, result.exit_code)
+
+            # Build report merging raw sandbox result with parsed pytest output
+            report: Dict[str, object] = {
                 "exit_code": result.exit_code,
                 "timed_out": result.timed_out,
-                "duration_s": result.duration_s,
+                "duration_s": parsed["duration_s"] if parsed["duration_s"] else result.duration_s,
                 "stdout_summary": result.stdout[:500] if result.stdout else "",
                 "stderr_summary": result.stderr[:500] if result.stderr else "",
                 "summary": self._generate_test_summary(result),
+                # Structured pytest results (Phase B)
+                "passed": parsed["passed"],
+                "failed": parsed["failed"],
+                "errors": parsed["errors"],
+                "status": parsed["status"],
+                "failures": parsed["failures"],
+                # failing_tests for backward compatibility with TestPhaseRunner / FixPhaseRunner
+                "failing_tests": [f["test"] for f in parsed["failures"]],
             }
 
             # Decide if test passed or failed based on exit code
@@ -200,6 +214,82 @@ class TesterAgent(DevAgentBase):
                     phase_id=phase_id,
                 )
             )
+
+    def _parse_pytest_output(self, output: str, returncode: int) -> Dict[str, object]:
+        """Parse pytest output into a structured result dict.
+
+        Parses lines such as::
+
+            PASSED tests/test_foo.py::test_bar
+            FAILED tests/test_foo.py::test_baz - AssertionError: expected 1, got 2
+            2 passed, 1 failed in 0.38s
+
+        Args:
+            output:     Combined stdout+stderr from the pytest run.
+            returncode: Process exit code (0 = all passed, 1 = failures,
+                        5 = no tests collected).
+
+        Returns:
+            Dict with keys: passed, failed, errors, status, output,
+            failures (list of {test, message}), duration_s.
+        """
+        passed = 0
+        failed = 0
+        errors = 0
+        failures: List[Dict[str, str]] = []
+        duration_s = 0.0
+
+        # Parse counts from summary line, e.g. "2 passed, 1 failed, 1 error in 0.42s"
+        for match in re.finditer(r"(\d+) (passed|failed|error)", output):
+            count = int(match.group(1))
+            kind = match.group(2)
+            if kind == "passed":
+                passed = count
+            elif kind == "failed":
+                failed = count
+            elif kind == "error":
+                errors = count
+
+        # Parse duration, e.g. "in 0.42s"
+        duration_match = re.search(r"in ([\d.]+)s", output)
+        if duration_match:
+            try:
+                duration_s = float(duration_match.group(1))
+            except ValueError:
+                pass
+
+        # Parse "FAILED test_name - message" lines for failure details
+        for line in output.splitlines():
+            if line.startswith("FAILED "):
+                rest = line[7:]
+                if " - " in rest:
+                    test_name = rest.split(" - ")[0].strip()
+                    message = rest.split(" - ", 1)[1].strip()
+                else:
+                    test_name = rest.strip()
+                    message = ""
+                failures.append({"test": test_name, "message": message})
+
+        # Determine status
+        if returncode == 5:
+            # pytest exit code 5 means no tests were collected
+            status = "no_tests"
+        elif returncode == 0:
+            status = "passed"
+        elif errors > 0:
+            status = "error"
+        else:
+            status = "failed"
+
+        return {
+            "passed": passed,
+            "failed": failed,
+            "errors": errors,
+            "status": status,
+            "output": output,
+            "failures": failures,
+            "duration_s": duration_s,
+        }
 
     def _generate_test_summary(self, result) -> str:
         """Generate a human-readable test summary from sandbox result.
