@@ -290,3 +290,78 @@ class TestGrowthBridgeActiveRunsCleanup:
         assert len(enriched) == 1
         assert enriched[0].payload["agent_id"] == run_id
         assert enriched[0].payload["domain"] == "health"
+
+
+class TestGrowthBridgeRunDevloopContext:
+    """Unit tests for _run_devloop() context propagation."""
+
+    async def test_run_devloop_passes_context_to_orchestrator(self, tmp_path: Path) -> None:
+        """_run_devloop() passes agent_spec_template, domain, need_id from _active_runs to orchestrator."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = MessageBus()
+        bridge = GrowthBridge(message_bus=bus, journal_base_path=tmp_path)
+
+        run_id = "run-ctx-001"
+        goal = "build a test agent"
+        agent_spec_template = {"name": "TestAgent", "topics": ["test.topic"]}
+        bridge._active_runs[run_id] = {
+            "agent_spec_template": agent_spec_template,
+            "domain": "test-domain",
+            "need_id": "need-ctx-001",
+        }
+
+        orchestrator = MagicMock()
+        orchestrator.run = AsyncMock()
+
+        await bridge._run_devloop(run_id, goal, orchestrator)
+
+        orchestrator.run.assert_awaited_once()
+        call_kwargs = orchestrator.run.call_args.kwargs
+        assert call_kwargs["run_id"] == run_id
+        assert call_kwargs["goal"] == goal
+        context = call_kwargs["context"]
+        assert context["agent_spec_template"] == agent_spec_template
+        assert context["domain"] == "test-domain"
+        assert context["need_id"] == "need-ctx-001"
+
+    async def test_run_devloop_context_does_not_mutate_active_runs(self, tmp_path: Path) -> None:
+        """_run_devloop() builds a new context dict and does not mutate _active_runs."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = MessageBus()
+        bridge = GrowthBridge(message_bus=bus, journal_base_path=tmp_path)
+
+        run_id = "run-ctx-002"
+        original_template = {"name": "ImmutableAgent"}
+        bridge._active_runs[run_id] = {
+            "agent_spec_template": original_template,
+            "domain": "immutable",
+            "need_id": "need-imm-001",
+        }
+
+        orchestrator = MagicMock()
+        orchestrator.run = AsyncMock()
+
+        await bridge._run_devloop(run_id, "immutable goal", orchestrator)
+
+        # original_template must not have been mutated
+        assert original_template == {"name": "ImmutableAgent"}
+
+    async def test_run_devloop_empty_active_runs_uses_defaults(self, tmp_path: Path) -> None:
+        """_run_devloop() uses empty defaults when run_id not in _active_runs."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        bus = MessageBus()
+        bridge = GrowthBridge(message_bus=bus, journal_base_path=tmp_path)
+
+        orchestrator = MagicMock()
+        orchestrator.run = AsyncMock()
+
+        await bridge._run_devloop("missing-run-id", "some goal", orchestrator)
+
+        call_kwargs = orchestrator.run.call_args.kwargs
+        context = call_kwargs["context"]
+        assert context["agent_spec_template"] == {}
+        assert context["domain"] == ""
+        assert context["need_id"] == ""

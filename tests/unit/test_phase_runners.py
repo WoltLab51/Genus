@@ -299,3 +299,61 @@ async def test_fix_runner_logs_fix_completed_event(ctx):
     )
     events_list = ctx.journal.get_events(phase="fix", event_type="fix_completed")
     assert len(events_list) == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_runner_injects_agent_spec_template_and_domain_from_context(ctx):
+    """agent_spec_template and domain from ctx.context appear in dev.plan.requested metadata."""
+    agent_spec = {"name": "ContextAgent", "topics": ["ctx.topic"]}
+    ctx_with_context = dataclasses.replace(
+        ctx,
+        context={
+            "agent_spec_template": agent_spec,
+            "domain": "ctx-domain",
+            "need_id": "need-ctx-001",
+        },
+    )
+
+    received_metadata = []
+
+    async def fake_planner(msg):
+        received_metadata.append(dict(msg.metadata))
+        from genus.dev.events import dev_plan_completed_message
+        resp = dev_plan_completed_message(
+            "run-001", "planner", {"steps": ["ctx-step"]},
+            phase_id=msg.payload["phase_id"],
+        )
+        await _pub(resp, ctx_with_context.bus)
+
+    ctx_with_context.bus.subscribe(topics.DEV_PLAN_REQUESTED, "planner", fake_planner)
+    plan = await PlanPhaseRunner().run(ctx_with_context)
+
+    assert plan == {"steps": ["ctx-step"]}
+    assert len(received_metadata) == 1
+    meta = received_metadata[0]
+    assert meta.get("agent_spec_template") == agent_spec
+    assert meta.get("domain") == "ctx-domain"
+
+
+@pytest.mark.asyncio
+async def test_plan_runner_no_metadata_injection_when_context_is_none(ctx):
+    """When ctx.context is None, no agent_spec_template or domain are injected into metadata."""
+    assert ctx.context is None
+
+    received_metadata = []
+
+    async def fake_planner(msg):
+        received_metadata.append(dict(msg.metadata))
+        from genus.dev.events import dev_plan_completed_message
+        resp = dev_plan_completed_message(
+            "run-001", "planner", {"steps": ["no-ctx-step"]},
+            phase_id=msg.payload["phase_id"],
+        )
+        await _pub(resp, ctx.bus)
+
+    ctx.bus.subscribe(topics.DEV_PLAN_REQUESTED, "planner", fake_planner)
+    await PlanPhaseRunner().run(ctx)
+
+    meta = received_metadata[0]
+    assert "agent_spec_template" not in meta
+    assert "domain" not in meta

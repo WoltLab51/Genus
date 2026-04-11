@@ -303,8 +303,14 @@ class GrowthBridge(Agent):
             orchestrator: The :class:`~genus.dev.devloop_orchestrator.DevLoopOrchestrator`
                           to run.
         """
+        run_info = self._active_runs.get(run_id, {})
+        context = {
+            "agent_spec_template": dict(run_info.get("agent_spec_template") or {}),
+            "domain": run_info.get("domain", ""),
+            "need_id": run_info.get("need_id", ""),
+        }
         try:
-            await orchestrator.run(run_id=run_id, goal=goal)
+            await orchestrator.run(run_id=run_id, goal=goal, context=context)
         except Exception as exc:
             logger.error(
                 "GrowthBridge: DevLoop task failed (run_id=%r): %s",

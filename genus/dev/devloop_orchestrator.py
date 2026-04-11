@@ -107,12 +107,13 @@ class DevLoopOrchestrator:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _build_context(self, run_id: str, goal: str) -> RunContext:
+    def _build_context(self, run_id: str, goal: str, context: Optional[Dict[str, Any]] = None) -> RunContext:
         """Build the RunContext for this run, including episodic context.
 
         Args:
-            run_id: Unique run identifier.
-            goal:   Human-readable objective.
+            run_id:  Unique run identifier.
+            goal:    Human-readable objective.
+            context: Optional extra context dict (e.g. agent_spec_template, domain).
 
         Returns:
             A fully populated :class:`~genus.dev.run_context.RunContext`.
@@ -154,6 +155,7 @@ class DevLoopOrchestrator:
             timeouts=timeouts,
             strategy_selector=self._strategy_selector,
             episodic_context=episodic_context,
+            context=context,
         )
 
     def _journal_event(self, ctx: RunContext, phase: str, event_type: str, summary: str, **kwargs: Any) -> None:
@@ -199,7 +201,7 @@ class DevLoopOrchestrator:
             DevResponseFailedError:  If any phase fails.
             DevResponseTimeoutError: If any phase times out.
         """
-        ctx = self._build_context(run_id, goal)
+        ctx = self._build_context(run_id, goal, context=context)
 
         try:
             # -- Loop started --

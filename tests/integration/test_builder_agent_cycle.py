@@ -160,3 +160,44 @@ class TestBuilderAgentCycle:
         content = py_files[0].read_text(encoding="utf-8")
         # Should not raise SyntaxError
         ast.parse(content)
+
+    async def test_generated_class_name_matches_agent_spec_template_name(self, tmp_path: Path) -> None:
+        """Generated class name must match agent_spec_template.name from growth.build.requested.
+
+        This proves the context (agent_spec_template + domain) is correctly
+        propagated through GrowthBridge → DevLoopOrchestrator → PlanPhaseRunner
+        → TemplateBuilderAgent, so the generated file uses the specified name
+        instead of the generic domain-based fallback.
+        """
+        bus, builder, bootstrapper, bridge = await _setup_all(tmp_path)
+
+        await bus.publish(
+            Message(
+                topic="growth.build.requested",
+                payload=_build_payload(
+                    domain="finance",
+                    agent_name="BudgetTrackerAgent",
+                    need_description="track monthly budgets",
+                    topics=["finance.budget.requested"],
+                ),
+                sender_id="GrowthOrchestrator",
+            )
+        )
+
+        await asyncio.sleep(0.5)
+
+        generated_dir = tmp_path / "generated"
+        py_files = [f for f in generated_dir.glob("*.py") if f.name != "__init__.py"]
+        assert len(py_files) >= 1, (
+            f"Expected at least one generated .py file in {generated_dir}. "
+            f"Found: {list(generated_dir.iterdir()) if generated_dir.exists() else '(dir missing)'}"
+        )
+
+        content = py_files[0].read_text(encoding="utf-8")
+        ast.parse(content)  # must be syntactically valid
+
+        # The class name in the generated file must be BudgetTrackerAgent,
+        # not FinanceAgent (the generic domain-based fallback).
+        assert "class BudgetTrackerAgent" in content, (
+            f"Expected 'class BudgetTrackerAgent' in generated file, but got:\n{content[:500]}"
+        )
