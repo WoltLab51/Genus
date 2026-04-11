@@ -22,6 +22,7 @@ from genus.identity.models import (
     ResponsePolicy,
     RoomContext,
     SystemRole,
+    UserProfile,
 )
 from genus.identity.profile_store import ProfileStore
 
@@ -192,7 +193,7 @@ class PermissionEngine:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _handy_device(self, profile) -> Optional[str]:  # type: ignore[return]
+    def _handy_device(self, profile: Optional["UserProfile"]) -> Optional[str]:
         """Return the first known device as redirect target, or None."""
         if profile and profile.known_devices:
             return profile.known_devices[0]

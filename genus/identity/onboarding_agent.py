@@ -164,7 +164,8 @@ class OnboardingAgent(Agent):
     async def _handle_name_step(
         self, session_id: str, state: Dict, user_message: str
     ) -> Tuple[str, bool]:
-        name = user_message.strip().split()[0] if user_message.strip() else user_message.strip()
+        stripped = user_message.strip()
+        name = stripped.split()[0] if stripped else ""
         if not name:
             return "Ich habe deinen Namen nicht verstanden. Wie soll ich dich nennen?", False
 
