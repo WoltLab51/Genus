@@ -10,6 +10,7 @@ Each runner handles:
 All runners use the listen-before-publish pattern from genus.dev.runtime.
 """
 
+import copy
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -88,7 +89,7 @@ class PlanPhaseRunner:
         if ctx.context:
             extra: Dict[str, Any] = {}
             if ctx.context.get("agent_spec_template"):
-                extra["agent_spec_template"] = dict(ctx.context["agent_spec_template"])
+                extra["agent_spec_template"] = copy.deepcopy(ctx.context["agent_spec_template"])
             if ctx.context.get("domain"):
                 extra["domain"] = ctx.context["domain"]
             if extra:

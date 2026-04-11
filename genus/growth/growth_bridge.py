@@ -51,6 +51,7 @@ Topics published:
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from pathlib import Path
 from typing import Dict, Optional
@@ -305,7 +306,7 @@ class GrowthBridge(Agent):
         """
         run_info = self._active_runs.get(run_id, {})
         context = {
-            "agent_spec_template": dict(run_info.get("agent_spec_template") or {}),
+            "agent_spec_template": copy.deepcopy(run_info.get("agent_spec_template") or {}),
             "domain": run_info.get("domain", ""),
             "need_id": run_info.get("need_id", ""),
         }
