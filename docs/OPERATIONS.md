@@ -53,6 +53,7 @@ uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
 | `GENUS_LLM_STRATEGY` | `adaptive` | Routing-Strategie (`adaptive`, `quality`, `cost`, `local`) |
 | `GENUS_LLM_SCORES_PATH` | `var/router_scores.jsonl` | Pfad für Router-Score-Persistenz |
 | `GENUS_NEEDS_DIR` | `var/needs/` | Verzeichnis für NeedObserver-State-Persistenz |
+| `GENUS_SANDBOX_ENABLED` | `true` | Sandbox-Probelauf vor Agent-Bootstrap aktivieren (Phase 11c) |
 ### Beispiel: Docker / systemd
 
 ```bash

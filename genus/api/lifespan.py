@@ -259,6 +259,9 @@ async def _start_agents(bus: MessageBus) -> List[object]:
     try:
         from genus.growth.need_observer import NeedObserver
         from genus.growth.need_store import NeedStore
+        from genus.growth.code_validator import CodeValidator
+        from genus.growth.bootstrapper import AgentBootstrapper
+        from genus.communication.topic_registry import TopicRegistry
 
         needs_dir = Path(os.environ.get("GENUS_NEEDS_DIR", "var/needs"))
         needs_dir.mkdir(parents=True, exist_ok=True)
@@ -271,7 +274,30 @@ async def _start_agents(bus: MessageBus) -> List[object]:
         await need_observer.initialize()
         await need_observer.start()
         agents.append(need_observer)
+
+        # AgentBootstrapper with code validator + optional sandbox runner (Phase 11c)
+        code_validator = CodeValidator()
+        sandbox_enabled = (
+            os.environ.get("GENUS_SANDBOX_ENABLED", "true").lower() == "true"
+        )
+        # Any truthy object enables the sandbox import-check; the check itself
+        # uses asyncio.create_subprocess_exec internally (no workspace needed).
+        sandbox_runner = object() if sandbox_enabled else None
+
+        topic_registry = TopicRegistry()
+        bootstrapper = AgentBootstrapper(
+            message_bus=bus,
+            topic_registry=topic_registry,
+            code_validator=code_validator,
+            sandbox_runner=sandbox_runner,
+        )
+        await bootstrapper.initialize()
+        await bootstrapper.start()
+        agents.append(bootstrapper)
+        logger.info(
+            "AgentBootstrapper started (sandbox_enabled=%s)", sandbox_enabled
+        )
     except ImportError:
-        logger.warning("NeedObserver not available — skipping")
+        logger.warning("NeedObserver / AgentBootstrapper not available — skipping")
 
     return agents
