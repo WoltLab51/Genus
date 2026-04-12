@@ -78,6 +78,7 @@ class Intent(str, Enum):
     STATUS_REQUEST = "status_request"
     SYSTEM_COMMAND = "system_command"
     MEMORY_REQUEST = "memory_request"
+    SITUATION_UPDATE = "situation_update"
     UNKNOWN = "unknown"
 
 
@@ -101,17 +102,25 @@ class IntentClassifier:
     ]
     _QUESTION_KEYWORDS = ["was", "wie", "warum", "wann", "wo", "wer", "what", "how", "why"]
     _MEMORY_KEYWORDS = ["erinner", "letzte woche", "besprochen", "vergessen", "history"]
+    _SITUATION_KEYWORDS = [
+        "fahre", "unterwegs", "auf dem weg", "bin unterwegs",
+        "zuhause", "nach hause", "zu hause", "daheim",
+        "termin", "meeting", "im büro", "in der arbeit",
+    ]
 
     def classify(self, text: str) -> Intent:
         """Classify *text* into one of the :class:`Intent` values.
 
         Evaluation order (highest priority first):
-        1. SYSTEM_COMMAND  — stop/kill/halt keywords
-        2. STATUS_REQUEST  — status/run keywords
-        3. MEMORY_REQUEST  — memory-related keywords
-        4. DEV_REQUEST     — build/create/code keywords
-        5. QUESTION        — question words
-        6. CHAT            — everything else (including empty string)
+        1. SYSTEM_COMMAND    — stop/kill/halt keywords
+        2. STATUS_REQUEST    — status/run keywords
+        3. MEMORY_REQUEST    — memory-related keywords
+        4. DEV_REQUEST       — build/create/code keywords
+        5. QUESTION          — question words
+        6. SITUATION_UPDATE  — location/appointment/commute keywords
+                               (checked *after* QUESTION so that questions like
+                               "wie fahre ich dahin?" are not mis-classified)
+        7. CHAT              — everything else (including empty string)
         """
         lower = text.lower()
         if any(k in lower for k in self._STOP_KEYWORDS):
@@ -124,6 +133,8 @@ class IntentClassifier:
             return Intent.DEV_REQUEST
         if any(k in lower for k in self._QUESTION_KEYWORDS):
             return Intent.QUESTION
+        if any(k in lower for k in self._SITUATION_KEYWORDS):
+            return Intent.SITUATION_UPDATE
         return Intent.CHAT
 
 
@@ -318,6 +329,9 @@ class ConversationAgent(Agent):
         text: str,
         user_id: str,
         session_id: str,
+        room_context: Optional[Any] = None,
+        situation_store: Optional[Any] = None,
+        response_policy: Optional[Any] = None,
     ) -> ConversationResponse:
         """Process a user message and return GENUS's response.
 
@@ -327,8 +341,20 @@ class ConversationAgent(Agent):
         3. Classify the intent.
         4. Dispatch to the appropriate handler.
         5. Add the response to memory and return.
+
+        Args:
+            text:            The user's message text.
+            user_id:         Identifier of the speaking user.
+            session_id:      Unique session identifier.
+            room_context:    Optional RoomContext (who else is present).
+            situation_store: Optional SituationStore for SITUATION_UPDATE handling
+                             and context injection (Phase 13c).
+            response_policy: Optional ResponsePolicy (may_answer_aloud etc.).
+                             When provided it is forwarded to the prompt-strategy
+                             resolver and context builder (Phase 13c).
         """
         # ── Phase 14 profile-aware checks ────────────────────────────────────
+        profile = None
         if self._profile_store is not None:
             profile = await self._profile_store.get(user_id)
             # Onboarding
@@ -371,6 +397,11 @@ class ConversationAgent(Agent):
                 if not has_access:
                     return ConversationResponse(text=msg, intent=Intent.CHAT.value)
 
+        # ── Resolve situation from store ─────────────────────────────────────
+        situation = None
+        if situation_store is not None:
+            situation = situation_store.get(user_id)
+
         # ── Normal flow ───────────────────────────────────────────────────────
         memory = self._get_or_create_memory(session_id)
         memory.add_user(text)
@@ -378,14 +409,28 @@ class ConversationAgent(Agent):
         intent = self._classifier.classify(text)
 
         if intent == Intent.DEV_REQUEST:
-            response = await self._handle_dev_request(text, memory, session_id)
+            response = await self._handle_dev_request(
+                text, memory, session_id, profile=profile
+            )
         elif intent == Intent.STATUS_REQUEST:
             response = await self._handle_status_request(memory)
         elif intent == Intent.SYSTEM_COMMAND:
             response = await self._handle_system_command(text, session_id)
+        elif intent == Intent.SITUATION_UPDATE:
+            response = await self._handle_situation_update(
+                text, user_id, situation_store
+            )
         else:
             # CHAT / QUESTION / MEMORY_REQUEST / UNKNOWN — all go through LLM
-            response = await self._chat_with_llm(text, memory, intent)
+            response = await self._chat_with_llm(
+                text,
+                memory,
+                intent,
+                profile=profile,
+                room_context=room_context,
+                situation=situation,
+                response_policy=response_policy,
+            )
 
         memory.add_assistant(response.text)
         return response
@@ -399,6 +444,11 @@ class ConversationAgent(Agent):
         text: str,
         memory: ConversationMemory,
         intent: Intent = Intent.CHAT,
+        *,
+        profile: Optional[Any] = None,
+        room_context: Optional[Any] = None,
+        situation: Optional[Any] = None,
+        response_policy: Optional[Any] = None,
     ) -> ConversationResponse:
         """Handle CHAT / QUESTION / UNKNOWN via LLM with system prompt + history."""
         if not self._llm_router:
@@ -411,17 +461,44 @@ class ConversationAgent(Agent):
             )
 
         try:
+            from genus.conversation.context_builder import (
+                ConversationContext,
+                build_llm_context_block,
+            )
+            from genus.conversation.prompt_strategy import resolve_prompt_strategy
             from genus.llm.models import LLMMessage, LLMRole
-            from genus.llm.router import TaskType
+
+            # Resolve prompt strategy (intent-adaptive, policy-aware)
+            strategy = resolve_prompt_strategy(intent, profile, situation, response_policy)
 
             context = memory.get_context()
             # Exclude the user message we just added (it's the last entry)
             # because we pass it separately as the final user message.
             history = context[:-1] if context else []
 
+            # Trim history to strategy.context_depth
+            if strategy.context_depth > 0:
+                history = history[-strategy.context_depth:]
+
             llm_messages = [
                 LLMMessage(role=LLMRole.SYSTEM, content=self._system_prompt),
             ]
+
+            # Build and inject context block (Phase 13c). Profile inclusion is
+            # gated independently so room/situation context is still preserved
+            # when response policy disables personal profile data.
+            conv_ctx = ConversationContext(
+                profile=profile if strategy.include_profile else None,
+                room=room_context,
+                policy=response_policy,
+                situation=situation,
+            )
+            context_block = build_llm_context_block(conv_ctx)
+            if context_block:
+                llm_messages.append(
+                    LLMMessage(role=LLMRole.SYSTEM, content=context_block)
+                )
+
             for entry in history:
                 role_str = entry.get("role", "user")
                 content = entry.get("content", "")
@@ -435,8 +512,9 @@ class ConversationAgent(Agent):
 
             response = await self._llm_router.complete(
                 messages=llm_messages,
-                task_type=TaskType.GENERAL,
-                max_tokens=500,
+                task_type=strategy.task_type,
+                max_tokens=strategy.max_tokens,
+                temperature=strategy.temperature,
             )
 
             return ConversationResponse(
@@ -459,15 +537,33 @@ class ConversationAgent(Agent):
         text: str,
         memory: ConversationMemory,
         session_id: str,
+        *,
+        profile: Optional[Any] = None,
     ) -> ConversationResponse:
         """Start a DevLoop run and confirm to the user."""
+        from genus.conversation.dev_context_extractor import extract_dev_context
+
         ts = datetime.now(timezone.utc).strftime("%H%M%S")
         run_id = f"conv_{session_id}_{ts}"
+
+        # Build enriched context (Phase 13c)
+        dev_ctx = extract_dev_context(
+            text,
+            profile=profile,
+            conversation_history=memory.get_context(),
+        )
 
         try:
             await self._bus.publish(Message(
                 topic=TOPIC_DEV_RUN_REQUESTED,
-                payload={"goal": text, "run_id": run_id, "source": "conversation"},
+                payload={
+                    "goal": dev_ctx.goal,
+                    "run_id": run_id,
+                    "source": "conversation",
+                    "requirements": dev_ctx.requirements,
+                    "constraints": dev_ctx.constraints,
+                    "conversation_summary": dev_ctx.conversation_summary,
+                },
                 sender_id=self.id,
                 metadata={"run_id": run_id},
             ))
@@ -531,6 +627,81 @@ class ConversationAgent(Agent):
             ),
             intent=Intent.SYSTEM_COMMAND.value,
             actions_taken=["kill_switch_requested"],
+        )
+
+    async def _handle_situation_update(
+        self,
+        text: str,
+        user_id: str,
+        situation_store: Optional[Any],
+    ) -> ConversationResponse:
+        """Parse a situation update and store it; reply naturally.
+
+        Heuristic keyword parsing — no LLM call needed for simple updates.
+        The stored :class:`SituationContext` will be used in subsequent
+        :meth:`_chat_with_llm` calls via the ConversationContext layer.
+        """
+        from genus.conversation.situation import (
+            ActivityHint,
+            LocationHint,
+            SituationContext,
+        )
+
+        lower = text.lower()
+
+        # Location heuristics
+        if any(k in lower for k in ("zuhause", "nach hause", "zu hause", "daheim")):
+            location = LocationHint.HOME
+        elif any(k in lower for k in ("unterwegs", "fahre", "auf dem weg", "commute")):
+            location = LocationHint.COMMUTING
+        elif any(k in lower for k in ("arbeit", "büro", "work", "office")):
+            location = LocationHint.WORK
+        else:
+            location = LocationHint.UNKNOWN
+
+        # Activity heuristics
+        if any(k in lower for k in ("termin", "meeting", "treffen", "gleich")):
+            if any(k in lower for k in ("in meeting", "im meeting", "in einem meeting")):
+                activity = ActivityHint.IN_MEETING
+            else:
+                activity = ActivityHint.APPOINTMENT_SOON
+        elif any(k in lower for k in ("unterwegs", "fahre", "commute")):
+            activity = ActivityHint.COMMUTING
+        else:
+            activity = ActivityHint.FREE
+
+        ctx = SituationContext(
+            user_id=user_id,
+            location=location,
+            activity=activity,
+            free_text=text.strip(),
+        )
+
+        if situation_store is not None:
+            situation_store.update(ctx)
+            logger.info(
+                "SituationUpdate stored: user=%s location=%s activity=%s",
+                user_id,
+                location.value,
+                activity.value,
+            )
+
+        # Build a natural confirmation
+        if activity == ActivityHint.COMMUTING or location == LocationHint.COMMUTING:
+            reply = "Verstanden, ich weiß dass du gerade unterwegs bist. Ich halte meine Antworten kurz."
+        elif activity == ActivityHint.APPOINTMENT_SOON:
+            reply = "Verstanden, du hast gleich einen Termin. Ich fasse mich kurz."
+        elif activity == ActivityHint.IN_MEETING:
+            reply = "Verstanden, du bist in einem Meeting. Ich melde mich nur wenn es wichtig ist."
+        elif location == LocationHint.HOME:
+            reply = "Gut, ich weiß dass du zuhause bist."
+        else:
+            reply = "Verstanden, ich habe deine aktuelle Situation notiert."
+
+        return ConversationResponse(
+            text=reply,
+            intent=Intent.SITUATION_UPDATE.value,
+            actions_taken=["situation_stored"] if situation_store is not None else [],
         )
 
     # ------------------------------------------------------------------

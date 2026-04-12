@@ -17,6 +17,13 @@ Kein Framework. Kein Chatbot. Ein lebendes, lernendes System.
 
 ## Abgeschlossen ✅
 
+### Phase 13c — Kontext-Verdrahtung
+GENUS weiß wer spricht, wo die Person ist und was gerade situativ los ist.
+SituationContext (TTL-aware), ContextBuilder (3 Schichten), PromptStrategy (intent-adaptiv),
+DevContextExtractor (Gespräch → DevLoop), EpisodicContext → PlannerPrompt.
+
+*Liefert: SituationContext, SituationStore, ContextBuilder, PromptStrategy, DevContextExtractor, context_formatter.*
+
 ### P0 — Core-Infrastruktur
 Agent ABC, MessageBus, Lifecycle, Config, erste Agenten (DataCollector, Analysis, Quality, Decision).
 Das Fundament auf dem alles aufbaut.
