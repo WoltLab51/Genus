@@ -503,6 +503,7 @@ class ConversationAgent(Agent):
                 messages=llm_messages,
                 task_type=strategy.task_type,
                 max_tokens=strategy.max_tokens,
+                temperature=strategy.temperature,
             )
 
             return ConversationResponse(
