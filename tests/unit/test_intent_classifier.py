@@ -57,3 +57,28 @@ class TestIntentClassifier:
     def test_system_command_priority_over_dev(self, classifier):
         """SYSTEM_COMMAND has higher priority than DEV_REQUEST."""
         assert classifier.classify("Stopp, baue nichts mehr") == Intent.SYSTEM_COMMAND
+
+    def test_question_priority_over_situation_update(self, classifier):
+        """QUESTION has higher priority than SITUATION_UPDATE (Phase 13c fix)."""
+        assert classifier.classify("Wie fahre ich nach Hause?") == Intent.QUESTION
+
+    def test_situation_update_no_question_keyword(self, classifier):
+        """Plain commute statement → SITUATION_UPDATE."""
+        assert classifier.classify("Ich fahre gerade nach Hause") == Intent.SITUATION_UPDATE
+
+    def test_situation_update_unterwegs(self, classifier):
+        assert classifier.classify("Bin gerade unterwegs") == Intent.SITUATION_UPDATE
+
+    def test_situation_update_meeting(self, classifier):
+        assert classifier.classify("Ich habe gleich ein meeting") == Intent.SITUATION_UPDATE
+
+    def test_situation_update_termin(self, classifier):
+        assert classifier.classify("Ich habe einen termin") == Intent.SITUATION_UPDATE
+
+    def test_no_false_positive_gerade(self, classifier):
+        """'gerade' alone was removed from keywords to prevent false positives."""
+        assert classifier.classify("Das ist gerade interessant") == Intent.CHAT
+
+    def test_no_false_positive_gleich(self, classifier):
+        """'gleich' alone was removed — should not trigger SITUATION_UPDATE."""
+        assert classifier.classify("Das machen wir gleich") == Intent.CHAT

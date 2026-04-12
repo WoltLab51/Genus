@@ -18,9 +18,12 @@ def format_episodic_for_planner(
 ) -> Optional[str]:
     """Format *episodic_context* into a compact text block for the PlannerAgent.
 
-    Iterates over runs (oldest first), building one line per run.  Stops
-    when the rough token estimate would exceed *max_tokens_budget*.
-    Returns ``None`` when *episodic_context* is empty or no line fits.
+    Iterates over runs in the order provided (the typical pipeline produces
+    runs most-recent-first via ``query_runs()`` ordered by ``created_at``
+    descending).  Stops when the rough token estimate would exceed
+    *max_tokens_budget* so the most-recent (most relevant) runs are always
+    included.  Returns ``None`` when *episodic_context* is empty or no line
+    fits within the budget.
 
     Token estimation uses a simple word-count × 1.3 heuristic — accurate
     enough for Raspberry-Pi token-budget awareness without importing a

@@ -103,8 +103,9 @@ class IntentClassifier:
     _QUESTION_KEYWORDS = ["was", "wie", "warum", "wann", "wo", "wer", "what", "how", "why"]
     _MEMORY_KEYWORDS = ["erinner", "letzte woche", "besprochen", "vergessen", "history"]
     _SITUATION_KEYWORDS = [
-        "fahre", "unterwegs", "termin", "meeting", "gleich", "zuhause",
-        "gerade", "auf dem weg", "bin in", "komme", "treffen",
+        "fahre", "unterwegs", "auf dem weg", "bin unterwegs",
+        "zuhause", "nach hause", "zu hause", "daheim",
+        "termin", "meeting", "im büro", "in der arbeit",
     ]
 
     def classify(self, text: str) -> Intent:
@@ -115,8 +116,10 @@ class IntentClassifier:
         2. STATUS_REQUEST    — status/run keywords
         3. MEMORY_REQUEST    — memory-related keywords
         4. DEV_REQUEST       — build/create/code keywords
-        5. SITUATION_UPDATE  — location/appointment/commute keywords
-        6. QUESTION          — question words
+        5. QUESTION          — question words
+        6. SITUATION_UPDATE  — location/appointment/commute keywords
+                               (checked *after* QUESTION so that questions like
+                               "wie fahre ich dahin?" are not mis-classified)
         7. CHAT              — everything else (including empty string)
         """
         lower = text.lower()
@@ -128,10 +131,10 @@ class IntentClassifier:
             return Intent.MEMORY_REQUEST
         if any(k in lower for k in self._DEV_KEYWORDS):
             return Intent.DEV_REQUEST
-        if any(k in lower for k in self._SITUATION_KEYWORDS):
-            return Intent.SITUATION_UPDATE
         if any(k in lower for k in self._QUESTION_KEYWORDS):
             return Intent.QUESTION
+        if any(k in lower for k in self._SITUATION_KEYWORDS):
+            return Intent.SITUATION_UPDATE
         return Intent.CHAT
 
 
@@ -328,6 +331,7 @@ class ConversationAgent(Agent):
         session_id: str,
         room_context: Optional[Any] = None,
         situation_store: Optional[Any] = None,
+        response_policy: Optional[Any] = None,
     ) -> ConversationResponse:
         """Process a user message and return GENUS's response.
 
@@ -345,6 +349,9 @@ class ConversationAgent(Agent):
             room_context:    Optional RoomContext (who else is present).
             situation_store: Optional SituationStore for SITUATION_UPDATE handling
                              and context injection (Phase 13c).
+            response_policy: Optional ResponsePolicy (may_answer_aloud etc.).
+                             When provided it is forwarded to the prompt-strategy
+                             resolver and context builder (Phase 13c).
         """
         # ── Phase 14 profile-aware checks ────────────────────────────────────
         profile = None
@@ -422,6 +429,7 @@ class ConversationAgent(Agent):
                 profile=profile,
                 room_context=room_context,
                 situation=situation,
+                response_policy=response_policy,
             )
 
         memory.add_assistant(response.text)
@@ -440,6 +448,7 @@ class ConversationAgent(Agent):
         profile: Optional[Any] = None,
         room_context: Optional[Any] = None,
         situation: Optional[Any] = None,
+        response_policy: Optional[Any] = None,
     ) -> ConversationResponse:
         """Handle CHAT / QUESTION / UNKNOWN via LLM with system prompt + history."""
         if not self._llm_router:
@@ -459,8 +468,8 @@ class ConversationAgent(Agent):
             from genus.conversation.prompt_strategy import resolve_prompt_strategy
             from genus.llm.models import LLMMessage, LLMRole
 
-            # Resolve prompt strategy (intent-adaptive)
-            strategy = resolve_prompt_strategy(intent, profile, situation)
+            # Resolve prompt strategy (intent-adaptive, policy-aware)
+            strategy = resolve_prompt_strategy(intent, profile, situation, response_policy)
 
             context = memory.get_context()
             # Exclude the user message we just added (it's the last entry)
@@ -481,6 +490,7 @@ class ConversationAgent(Agent):
             conv_ctx = ConversationContext(
                 profile=profile if strategy.include_profile else None,
                 room=room_context,
+                policy=response_policy,
                 situation=situation,
             )
             context_block = build_llm_context_block(conv_ctx)
@@ -691,7 +701,7 @@ class ConversationAgent(Agent):
         return ConversationResponse(
             text=reply,
             intent=Intent.SITUATION_UPDATE.value,
-            actions_taken=["situation_stored"],
+            actions_taken=["situation_stored"] if situation_store is not None else [],
         )
 
     # ------------------------------------------------------------------
