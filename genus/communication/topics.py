@@ -402,13 +402,6 @@ _r(TopicEntry(
     description="MemoryAgent hat einen Widerspruch zwischen neuem und gespeichertem Fakt erkannt.",
 ))
 _r(TopicEntry(
-    topic="memory.resonance.built",
-    owner="ResonanceLayer",
-    direction="publish",
-    domain="memory",
-    description="ResonanceLayer hat einen Memory-Kontext-Block für einen User gebaut.",
-))
-_r(TopicEntry(
     topic="memory.monologue.set",
     owner="ConversationAgent",
     direction="publish",

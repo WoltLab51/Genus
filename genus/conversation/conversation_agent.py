@@ -27,11 +27,12 @@ from genus.core.agent import Agent, AgentState
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Topic constants (not published elsewhere yet)
+# Topic constants
 # ---------------------------------------------------------------------------
 
 TOPIC_DEV_RUN_REQUESTED = "dev.run.requested"
 TOPIC_SYSTEM_KILL_SWITCH = "system.kill_switch.requested"
+TOPIC_MEMORY_MONOLOGUE_SET = "memory.monologue.set"
 
 # ---------------------------------------------------------------------------
 # InnerMonologue heuristic keyword lists (Phase 15a)
@@ -470,7 +471,7 @@ class ConversationAgent(Agent):
 
         # Phase 15a — InnerMonologue: Notiz nach bedeutsamen Gesprächen setzen
         if self._inner_monologue is not None and len(text) > 20:
-            await self._maybe_set_inner_note(text, response.text, user_id, intent)
+            await self._maybe_set_inner_note(text, user_id, intent)
 
         return response
 
@@ -490,6 +491,7 @@ class ConversationAgent(Agent):
         situation: Optional[Any] = None,
         response_policy: Optional[Any] = None,
         extra_system_block: Optional[str] = None,
+        inject_resonance: bool = True,
     ) -> ConversationResponse:
         """Handle CHAT / QUESTION / UNKNOWN via LLM with system prompt + history."""
         if not self._llm_router:
@@ -551,7 +553,9 @@ class ConversationAgent(Agent):
 
             # Phase 15a — ResonanceLayer: Memory-Kontext immer injizieren.
             # Das LLM entscheidet selbst ob und wie es ihn einbringt.
-            if user_id:
+            # Skipped when caller already supplies a custom resonance block
+            # via extra_system_block (e.g. _handle_memory_request with max_episodes=5).
+            if inject_resonance and user_id:
                 from genus.memory.resonance_layer import build_resonance_block
                 resonance_block = build_resonance_block(
                     user_id,
@@ -814,12 +818,12 @@ class ConversationAgent(Agent):
             profile=profile,
             situation=situation,
             extra_system_block=resonance_block if resonance_block else None,
+            inject_resonance=False,  # caller already provides extended resonance block
         )
 
     async def _maybe_set_inner_note(
         self,
         user_text: str,
-        genus_response: str,
         user_id: str,
         intent: Intent,
     ) -> None:
@@ -851,6 +855,11 @@ class ConversationAgent(Agent):
         if note:
             try:
                 self._inner_monologue.set(user_id, note)
+                await self._bus.publish(Message(
+                    topic=TOPIC_MEMORY_MONOLOGUE_SET,
+                    payload={"user_id": user_id, "intent": intent.value},
+                    sender_id=self.id,
+                ))
             except Exception as exc:  # noqa: BLE001
                 logger.debug("InnerMonologue: could not set note: %s", exc)
 

@@ -262,6 +262,19 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
         await conversation_agent.start()
         app.state.conversation_agent = conversation_agent
 
+        # Re-create ConnectionManager so all new WebSocket/REST sessions also
+        # get the memory stores wired in (Phase 15a).
+        connection_manager = ConnectionManager(
+            default_llm_router=llm_router,
+            default_bus=bus,
+            conversations_dir=conversations_dir,
+            max_history=max_history,
+            episode_store=episode_store,
+            fact_store=fact_store,
+            inner_monologue=inner_monologue,
+        )
+        app.state.connection_manager = connection_manager
+
         logger.info("Memory stores started (Phase 15a): EpisodeStore, SemanticFactStore, InnerMonologue")
     except ImportError as exc:
         logger.warning("Memory stores not available — skipping: %s", exc)

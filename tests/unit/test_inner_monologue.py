@@ -106,13 +106,23 @@ class TestInnerMonologueSet:
         result = im.set("user1", "   trimmed   ")
         assert result.note == "trimmed"
 
-    def test_set_new_note_appends_to_jsonl(self, tmp_path):
+    def test_set_empty_note_is_noop(self, tmp_path):
+        im = InnerMonologue(base_dir=tmp_path)
+        result = im.set("user1", "   ")  # all whitespace → empty after strip
+        assert result.note == ""
+        file = tmp_path / "user1.jsonl"
+        assert not file.exists()  # nothing written
+
+    def test_set_new_note_overwrites_previous(self, tmp_path):
         im = InnerMonologue(base_dir=tmp_path)
         im.set("user1", "First note")
         im.set("user1", "Second note")
         file = tmp_path / "user1.jsonl"
         lines = [l for l in file.read_text().splitlines() if l.strip()]
-        assert len(lines) == 2
+        # Write mode: only the latest note is kept in the file
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["note"] == "Second note"
 
 
 class TestInnerMonologueGetCurrent:

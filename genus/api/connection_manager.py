@@ -58,6 +58,12 @@ class ConnectionManager:
         default_bus:            Default MessageBus injected into new sessions.
         conversations_dir:      Where to persist per-session JSONL files.
         max_history:            Maximum messages in the LLM context window.
+        episode_store:          Optional EpisodeStore passed to per-session agents
+                                (Phase 15a — ResonanceLayer).
+        fact_store:             Optional SemanticFactStore passed to per-session
+                                agents (Phase 15a — ResonanceLayer).
+        inner_monologue:        Optional InnerMonologue passed to per-session
+                                agents (Phase 15a — InnerMonologue).
     """
 
     def __init__(
@@ -67,6 +73,9 @@ class ConnectionManager:
         default_bus: Optional[MessageBus] = None,
         conversations_dir: Optional[Path] = None,
         max_history: int = 20,
+        episode_store: Optional[Any] = None,
+        fact_store: Optional[Any] = None,
+        inner_monologue: Optional[Any] = None,
     ) -> None:
         self._sessions: Dict[str, ConversationSession] = {}
         self._default_llm_router = default_llm_router
@@ -75,6 +84,10 @@ class ConnectionManager:
         self._conversations_dir: Path = conversations_dir or Path(
             os.environ.get("GENUS_CONVERSATIONS_DIR", "var/conversations")
         )
+        # Phase 15a — memory stores (all optional for backward compat)
+        self._episode_store = episode_store
+        self._fact_store = fact_store
+        self._inner_monologue = inner_monologue
 
     def get_or_create_session(
         self,
@@ -107,6 +120,10 @@ class ConnectionManager:
             llm_router=effective_router,
             max_history=self._max_history,
             conversations_dir=self._conversations_dir,
+            # Phase 15a — wire memory stores into every session agent
+            episode_store=self._episode_store,
+            fact_store=self._fact_store,
+            inner_monologue=self._inner_monologue,
         )
         session = ConversationSession(session_id=session_id, agent=agent)
         self._sessions[session_id] = session

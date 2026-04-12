@@ -80,17 +80,26 @@ class InnerMonologue:
     def set(self, user_id: str, note: str) -> MonologueNote:
         """Setzt eine neue Notiz für einen User.
 
+        Leere Notizen nach ``strip()`` werden als No-op behandelt und nicht
+        persistiert.
+
         Args:
             user_id: Der User.
             note:    Die Notiz (max 280 Zeichen, wird gekürzt wenn nötig).
 
         Returns:
-            Die gespeicherte MonologueNote.
+            Die MonologueNote; bei leerer Notiz nach ``strip()`` ungespeichert.
         """
         note = note.strip()[:_MAX_NOTE_CHARS]
         entry = MonologueNote(user_id=user_id, note=note)
+        if not note:
+            return entry
         self._write(entry)
-        logger.info("InnerMonologue: note set for user=%s: %r", user_id, note[:60])
+        logger.info(
+            "InnerMonologue: note set for user=%s (length=%d)",
+            user_id,
+            len(note),
+        )
         return entry
 
     def get_current(self, user_id: str) -> Optional[str]:
@@ -134,26 +143,27 @@ class InnerMonologue:
         path = self._file_path(note.user_id)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as fh:
+            # Use write mode ("w") so each call overwrites the previous note,
+            # keeping one active note per user and bounding file size.
+            with path.open("w", encoding="utf-8") as fh:
                 fh.write(json.dumps(note.to_dict(), ensure_ascii=False) + "\n")
         except Exception as exc:  # noqa: BLE001
             logger.warning("InnerMonologue: failed to write: %s", exc)
 
     def _read_latest(self, user_id: str) -> Optional[MonologueNote]:
-        """Liest die letzte (neueste) Notiz aus dem JSONL."""
+        """Liest die aktuelle Notiz des Users."""
         path = self._file_path(user_id)
         if not path.exists():
             return None
-        latest = None
         try:
             with path.open("r", encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
                     if line:
-                        latest = MonologueNote.from_dict(json.loads(line))
+                        return MonologueNote.from_dict(json.loads(line))
         except Exception as exc:  # noqa: BLE001
             logger.warning("InnerMonologue: failed to read %s: %s", path, exc)
-        return latest
+        return None
 
     def _file_path(self, user_id: str) -> Path:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in user_id)
