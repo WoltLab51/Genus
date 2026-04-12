@@ -475,18 +475,19 @@ class ConversationAgent(Agent):
                 LLMMessage(role=LLMRole.SYSTEM, content=self._system_prompt),
             ]
 
-            # Build and inject context block (Phase 13c)
-            if strategy.include_profile:
-                conv_ctx = ConversationContext(
-                    profile=profile,
-                    room=room_context,
-                    situation=situation,
+            # Build and inject context block (Phase 13c). Profile inclusion is
+            # gated independently so room/situation context is still preserved
+            # when response policy disables personal profile data.
+            conv_ctx = ConversationContext(
+                profile=profile if strategy.include_profile else None,
+                room=room_context,
+                situation=situation,
+            )
+            context_block = build_llm_context_block(conv_ctx)
+            if context_block:
+                llm_messages.append(
+                    LLMMessage(role=LLMRole.SYSTEM, content=context_block)
                 )
-                context_block = build_llm_context_block(conv_ctx)
-                if context_block:
-                    llm_messages.append(
-                        LLMMessage(role=LLMRole.SYSTEM, content=context_block)
-                    )
 
             for entry in history:
                 role_str = entry.get("role", "user")
