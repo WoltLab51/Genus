@@ -90,6 +90,13 @@ GENUS vergisst nicht was es lernen wollte.
 AST-Scanner + Probelauf vor dem Laden von generiertem Code.
 Kein unkontrollierter Code mehr. SECURITY-TODO geschlossen. 🔒
 
+### Phase 14b — MemoryAgent + Episodisches Gedächtnis
+GENUS erinnert sich wirklich — nicht nur an die letzten 20 Nachrichten.
+EpisodeStore komprimiert Gespräche nachtweise, SemanticFactStore verhindert stilles
+Überschreiben von Fakten, NightScheduler koordiniert den nächtlichen Job.
+
+*Liefert: MemoryAgent, EpisodeStore, SemanticFactStore, ConversationCompressor, NightScheduler.*
+
 ---
 
 ## Geplant 🔜
@@ -117,15 +124,6 @@ GENUS kennt jeden. Jede Person hat ein Profil (Vorlieben, Projekte, Gewohnheiten
 Private Bereiche die GENUS nicht teilt. Gemeinsame Bereiche für die Familie.
 
 *Liefert: UserProfile, FamilyContext, PrivacyPolicy, profile-aware ConversationAgent.*
-
-### Phase 14b — MemoryAgent + Episodisches Gedächtnis
-GENUS erinnert sich wirklich — nicht nur an die letzten 20 Nachrichten.
-Nacht-Job komprimiert Gespräche, überführt Wichtiges ins Semantic Memory,
-markiert Unwichtiges zum Vergessen. Konsistenz-Check verhindert stilles Überschreiben.
-
-*Liefert: MemoryAgent, EpisodicMemory, Nacht-Komprimierung, Konsistenz-Check.*
-
-→ Siehe auch: [MEMORY_ARCHITECTURE.md](MEMORY_ARCHITECTURE.md)
 
 ### Phase 15 — KnowledgeAgent + Recherche-Tools + Deployment-Awareness
 GENUS kann recherchieren. WebSearchTool, SummarizeTool, LLM-gestützte Zusammenfassung.
