@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-EXEMPT_PATHS: Set[str] = {"/health", "/docs", "/openapi.json"}
+EXEMPT_PATHS: Set[str] = {"/health", "/docs", "/openapi.json", "/", "/favicon.ico"}
 
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
@@ -50,7 +50,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             self._key_to_role[admin_key] = "admin"
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.url.path in EXEMPT_PATHS:
+        if request.url.path in EXEMPT_PATHS or request.url.path.startswith("/static/"):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")

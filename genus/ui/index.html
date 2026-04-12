@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GENUS – Familien-KI</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f7fa;
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1a1a2e;
+    }
+
+    /* ── Screens ──────────────────────────────────────────── */
+    .screen { display: none; width: 100%; max-width: 480px; padding: 1rem; }
+    .screen.active { display: flex; flex-direction: column; }
+
+    /* ── Login ────────────────────────────────────────────── */
+    #login-screen {
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .login-card {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 4px 24px rgba(74, 144, 217, 0.12);
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .logo-text {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #4a90d9;
+      letter-spacing: 0.15em;
+    }
+
+    .login-subtitle {
+      font-size: 0.9rem;
+      color: #666;
+      text-align: center;
+    }
+
+    .input-group {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #444;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1.5px solid #dde3ef;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+      background: #f9fafc;
+    }
+
+    input:focus {
+      border-color: #4a90d9;
+      background: #fff;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-primary {
+      background: #4a90d9;
+      color: #ffffff;
+    }
+
+    .btn-primary:not(:disabled):hover { opacity: 0.88; }
+
+    .btn-secondary {
+      background: #eef2f8;
+      color: #4a90d9;
+    }
+
+    .btn-secondary:hover { background: #dde7f4; }
+
+    .login-error {
+      color: #d9534f;
+      font-size: 0.85rem;
+      text-align: center;
+      min-height: 1.2em;
+    }
+
+    /* ── Chat Layout ──────────────────────────────────────── */
+    #chat-screen {
+      height: 100dvh;
+      max-width: 100%;
+      padding: 0;
+    }
+
+    @media (min-width: 600px) {
+      #chat-screen {
+        max-width: 700px;
+        height: 90dvh;
+        margin: auto;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 8px 40px rgba(74, 144, 217, 0.15);
+      }
+    }
+
+    /* ── Header ───────────────────────────────────────────── */
+    .chat-header {
+      background: #4a90d9;
+      color: #fff;
+      padding: 0.85rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .chat-header-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #a8e6cf;
+      display: inline-block;
+      margin-right: 0.4rem;
+      transition: background 0.3s;
+    }
+
+    .status-dot.disconnected { background: #f8a5a5; }
+
+    .btn-logout {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: #fff;
+      padding: 0.35rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-logout:hover { background: rgba(255,255,255,0.35); }
+
+    /* ── Messages ─────────────────────────────────────────── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      background: #f5f7fa;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      scroll-behavior: smooth;
+    }
+
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 80%;
+    }
+
+    .msg-row.user { align-self: flex-end; align-items: flex-end; }
+    .msg-row.genus { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 0.65rem 1rem;
+      border-radius: 16px;
+      line-height: 1.5;
+      word-break: break-word;
+      font-size: 0.95rem;
+    }
+
+    .msg-row.user .bubble {
+      background: #4a90d9;
+      color: #ffffff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .msg-row.genus .bubble {
+      background: #ffffff;
+      color: #1a1a2e;
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+
+    .bubble.system-error {
+      background: #fdecea;
+      color: #c0392b;
+      font-size: 0.85rem;
+      border-radius: 10px;
+      align-self: center;
+      max-width: 90%;
+      box-shadow: none;
+    }
+
+    .msg-time {
+      font-size: 0.7rem;
+      color: #9aa5b4;
+      margin-top: 0.2rem;
+      padding: 0 0.25rem;
+    }
+
+    /* ── Thinking indicator ───────────────────────────────── */
+    .thinking-row {
+      display: none;
+      align-self: flex-start;
+    }
+
+    .thinking-row.visible { display: flex; }
+
+    .thinking-bubble {
+      background: #ffffff;
+      border-radius: 16px;
+      border-bottom-left-radius: 4px;
+      padding: 0.65rem 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+
+    .thinking-dots span {
+      display: inline-block;
+      font-size: 1.4rem;
+      color: #4a90d9;
+      animation: bounce 1.2s infinite;
+      line-height: 1;
+    }
+
+    .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+      40%            { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* ── Input bar ────────────────────────────────────────── */
+    .chat-input-bar {
+      display: flex;
+      gap: 0.6rem;
+      padding: 0.75rem 1rem;
+      background: #ffffff;
+      border-top: 1px solid #dde3ef;
+      flex-shrink: 0;
+    }
+
+    .chat-input {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border: 1.5px solid #dde3ef;
+      border-radius: 24px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      outline: none;
+      resize: none;
+      max-height: 120px;
+      overflow-y: auto;
+      transition: border-color 0.2s;
+    }
+
+    .chat-input:focus { border-color: #4a90d9; }
+
+    .btn-send {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #4a90d9;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.2s, transform 0.1s;
+      align-self: flex-end;
+    }
+
+    .btn-send:hover { opacity: 0.88; }
+    .btn-send:active { transform: scale(0.93); }
+    .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-send svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: #fff;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Connection banner ────────────────────────────────── */
+    .conn-banner {
+      display: none;
+      background: #fff3cd;
+      color: #856404;
+      font-size: 0.8rem;
+      text-align: center;
+      padding: 0.35rem 1rem;
+      flex-shrink: 0;
+    }
+
+    .conn-banner.visible { display: block; }
+    .conn-banner.error { background: #fdecea; color: #c0392b; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Login Screen ──────────────────────────────────────── -->
+  <section id="login-screen" class="screen active" aria-label="Login">
+    <div class="login-card">
+      <div class="logo-text" aria-label="GENUS Familien-KI">GENUS</div>
+      <p class="login-subtitle">Deine persönliche Familien-KI<br>Bitte melde dich mit deinem API-Key an.</p>
+      <div class="input-group">
+        <label for="api-key-input">API-Key</label>
+        <input
+          id="api-key-input"
+          type="password"
+          autocomplete="current-password"
+          placeholder="Schlüssel eingeben …"
+          aria-label="API-Key"
+        />
+      </div>
+      <div id="login-error" class="login-error" role="alert" aria-live="polite"></div>
+      <button id="login-btn" class="btn btn-primary" disabled>Anmelden</button>
+    </div>
+  </section>
+
+  <!-- ── Chat Screen ───────────────────────────────────────── -->
+  <section id="chat-screen" class="screen" aria-label="Chat">
+
+    <!-- Header -->
+    <header class="chat-header">
+      <div>
+        <span class="status-dot" id="status-dot" title="Verbindungsstatus"></span>
+        <span class="chat-header-title">GENUS</span>
+      </div>
+      <button class="btn-logout" id="logout-btn" aria-label="Abmelden">Abmelden</button>
+    </header>
+
+    <!-- Connection banner -->
+    <div class="conn-banner" id="conn-banner" role="status" aria-live="polite"></div>
+
+    <!-- Messages -->
+    <div class="messages" id="messages" role="log" aria-label="Nachrichtenverlauf" aria-live="polite">
+      <!-- Thinking indicator -->
+      <div class="thinking-row" id="thinking-row" aria-label="GENUS tippt …" aria-hidden="true">
+        <div class="thinking-bubble">
+          <div class="thinking-dots" aria-hidden="true">
+            <span>●</span><span>●</span><span>●</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="chat-input-bar">
+      <textarea
+        id="chat-input"
+        class="chat-input"
+        rows="1"
+        placeholder="Nachricht eingeben …"
+        aria-label="Nachricht"
+        maxlength="4000"
+      ></textarea>
+      <button class="btn-send" id="send-btn" aria-label="Senden" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+
+  </section>
+
+  <script>
+    /* ================================================================
+     * GENUS Chat UI — Vanilla JS
+     * No external dependencies. No build step needed.
+     * ================================================================ */
+
+    'use strict';
+
+    // ── Constants ──────────────────────────────────────────────────────
+    const SESSION_KEY   = 'genus_api_key';
+    const MAX_RETRIES   = 3;
+    const PING_INTERVAL = 30_000; // ms
+    const BASE_BACKOFF  = 1_000;  // ms
+
+    // ── DOM refs ───────────────────────────────────────────────────────
+    const loginScreen   = document.getElementById('login-screen');
+    const chatScreen    = document.getElementById('chat-screen');
+    const apiKeyInput   = document.getElementById('api-key-input');
+    const loginBtn      = document.getElementById('login-btn');
+    const loginError    = document.getElementById('login-error');
+    const messagesEl    = document.getElementById('messages');
+    const thinkingRow   = document.getElementById('thinking-row');
+    const chatInput     = document.getElementById('chat-input');
+    const sendBtn       = document.getElementById('send-btn');
+    const logoutBtn     = document.getElementById('logout-btn');
+    const statusDot     = document.getElementById('status-dot');
+    const connBanner    = document.getElementById('conn-banner');
+
+    // ── State ──────────────────────────────────────────────────────────
+    let apiKey      = '';
+    let sessionId   = '';
+    let ws          = null;
+    let retryCount  = 0;
+    let pingTimer   = null;
+    let retryTimer  = null;
+    let usingFallback = false;
+
+    // ── Login ──────────────────────────────────────────────────────────
+    apiKeyInput.addEventListener('input', () => {
+      loginBtn.disabled = apiKeyInput.value.trim() === '';
+      loginError.textContent = '';
+    });
+
+    apiKeyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !loginBtn.disabled) loginBtn.click();
+    });
+
+    loginBtn.addEventListener('click', () => {
+      const key = apiKeyInput.value.trim();
+      if (!key) return;
+      sessionStorage.setItem(SESSION_KEY, key);
+      startChat(key);
+    });
+
+    // ── Logout ─────────────────────────────────────────────────────────
+    logoutBtn.addEventListener('click', () => {
+      teardown();
+      sessionStorage.removeItem(SESSION_KEY);
+      showScreen('login');
+      apiKeyInput.value = '';
+      loginBtn.disabled = true;
+      loginError.textContent = '';
+    });
+
+    // ── Screen switching ───────────────────────────────────────────────
+    function showScreen(name) {
+      loginScreen.classList.toggle('active', name === 'login');
+      chatScreen.classList.toggle('active',  name === 'chat');
+    }
+
+    // ── Entry point ────────────────────────────────────────────────────
+    (function init() {
+      const saved = sessionStorage.getItem(SESSION_KEY);
+      if (saved) {
+        startChat(saved);
+      }
+    })();
+
+    function startChat(key) {
+      apiKey      = key;
+      sessionId   = crypto.randomUUID();
+      usingFallback = false;
+      retryCount  = 0;
+      showScreen('chat');
+      clearMessages();
+      connectWebSocket();
+    }
+
+    // ── WebSocket ──────────────────────────────────────────────────────
+    function connectWebSocket() {
+      if (ws) { ws.onclose = null; ws.close(); ws = null; }
+
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const url   = `${proto}://${location.host}/ws/chat/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(apiKey)}`;
+
+      setBanner('Verbinde …', false);
+      setStatus(false);
+
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        handleConnectionFailure();
+        return;
+      }
+
+      ws.addEventListener('open', onWsOpen);
+      ws.addEventListener('message', onWsMessage);
+      ws.addEventListener('close', onWsClose);
+      ws.addEventListener('error', () => { /* close event will follow */ });
+    }
+
+    function onWsOpen() {
+      retryCount = 0;
+      setStatus(true);
+      hideBanner();
+      schedulePing();
+      sendBtn.disabled = false;
+    }
+
+    function onWsMessage(event) {
+      let msg;
+      try { msg = JSON.parse(event.data); }
+      catch { return; }
+
+      switch (msg.type) {
+        case 'thinking':
+          showThinking(true);
+          break;
+
+        case 'message':
+          showThinking(false);
+          appendMessage('genus', msg.text ?? '', msg.timestamp ?? null);
+          break;
+
+        case 'pong':
+          // Keep-alive acknowledged — nothing to do
+          break;
+
+        case 'error':
+          showThinking(false);
+          appendSystemError(msg.message ?? 'Ein Fehler ist aufgetreten.');
+          break;
+
+        default:
+          break;
+      }
+    }
+
+    function onWsClose(event) {
+      clearPing();
+      setStatus(false);
+      sendBtn.disabled = true;
+
+      if (usingFallback) return;
+
+      if (retryCount < MAX_RETRIES) {
+        const delay = BASE_BACKOFF * Math.pow(2, retryCount);
+        retryCount++;
+        setBanner(`Verbindung getrennt. Wiederverbindung in ${delay / 1000}s … (${retryCount}/${MAX_RETRIES})`, false);
+        retryTimer = setTimeout(connectWebSocket, delay);
+      } else {
+        handleConnectionFailure();
+      }
+    }
+
+    function handleConnectionFailure() {
+      setBanner('WebSocket nicht verfügbar. Wechsle auf REST-Fallback …', false);
+      usingFallback = true;
+      sendBtn.disabled = false;
+
+      // Short delay so banner is readable, then switch UI state
+      setTimeout(() => {
+        setBanner('REST-Modus aktiv (kein Echtzeit-Chat).', false);
+      }, 1500);
+    }
+
+    // ── Ping/Pong ──────────────────────────────────────────────────────
+    function schedulePing() {
+      clearPing();
+      pingTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, PING_INTERVAL);
+    }
+
+    function clearPing() {
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    }
+
+    // ── Sending messages ───────────────────────────────────────────────
+    chatInput.addEventListener('input', () => {
+      autoResize(chatInput);
+    });
+
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendBtn.disabled) doSend();
+      }
+    });
+
+    sendBtn.addEventListener('click', doSend);
+
+    function doSend() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatInput.value = '';
+      autoResize(chatInput);
+      appendMessage('user', text, new Date().toISOString());
+
+      if (!usingFallback && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'message', text, user_id: 'user' }));
+      } else {
+        sendRest(text);
+      }
+    }
+
+    async function sendRest(text) {
+      sendBtn.disabled = true;
+      setBanner('REST-Modus: Anfrage wird gesendet …', false);
+      try {
+        const resp = await fetch('/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({ message: text, session_id: sessionId }),
+        });
+
+        if (!resp.ok) {
+          appendSystemError('Anfrage fehlgeschlagen. Bitte erneut versuchen.');
+          return;
+        }
+
+        const data = await resp.json();
+        const reply = data.response ?? data.text ?? data.message ?? '';
+        if (reply) appendMessage('genus', reply, data.timestamp ?? null);
+        hideBanner();
+      } catch {
+        appendSystemError('Netzwerkfehler. Bitte Verbindung prüfen.');
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    // ── UI helpers ─────────────────────────────────────────────────────
+    function appendMessage(sender, text, timestamp) {
+      const row    = document.createElement('div');
+      row.className = `msg-row ${sender}`;
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+
+      const time   = document.createElement('div');
+      time.className = 'msg-time';
+      time.textContent = formatTime(timestamp);
+
+      row.appendChild(bubble);
+      row.appendChild(time);
+
+      // Insert before thinking row so thinking stays at bottom
+      messagesEl.insertBefore(row, thinkingRow);
+      scrollToBottom();
+    }
+
+    function appendSystemError(message) {
+      const el = document.createElement('div');
+      el.className = 'bubble system-error';
+      el.setAttribute('role', 'alert');
+      el.textContent = message;
+      messagesEl.insertBefore(el, thinkingRow);
+      scrollToBottom();
+    }
+
+    function showThinking(visible) {
+      thinkingRow.classList.toggle('visible', visible);
+      thinkingRow.setAttribute('aria-hidden', String(!visible));
+      if (visible) scrollToBottom();
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function clearMessages() {
+      // Keep only the thinking row
+      Array.from(messagesEl.children).forEach(child => {
+        if (child !== thinkingRow) child.remove();
+      });
+      showThinking(false);
+    }
+
+    function setStatus(connected) {
+      statusDot.classList.toggle('disconnected', !connected);
+      statusDot.title = connected ? 'Verbunden' : 'Getrennt';
+    }
+
+    function setBanner(text, isError) {
+      connBanner.textContent = text;
+      connBanner.classList.toggle('error', isError);
+      connBanner.classList.add('visible');
+    }
+
+    function hideBanner() {
+      connBanner.classList.remove('visible');
+      connBanner.textContent = '';
+    }
+
+    function formatTime(iso) {
+      if (!iso) return new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      try {
+        return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      } catch {
+        return '';
+      }
+    }
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+
+    function teardown() {
+      clearPing();
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      if (ws) { ws.onclose = null; ws.close(); ws = null; }
+      usingFallback = false;
+      retryCount = 0;
+    }
+  </script>
+</body>
+</html>
