@@ -34,6 +34,20 @@ TOPIC_DEV_RUN_REQUESTED = "dev.run.requested"
 TOPIC_SYSTEM_KILL_SWITCH = "system.kill_switch.requested"
 
 # ---------------------------------------------------------------------------
+# InnerMonologue heuristic keyword lists (Phase 15a)
+# ---------------------------------------------------------------------------
+
+_INNER_NOTE_STRESS_KEYWORDS = [
+    "stress", "nervös", "angst", "sorge", "müde", "erschöpft", "schwierig", "problem",
+]
+_INNER_NOTE_HAPPY_KEYWORDS = [
+    "freue", "toll", "super", "klasse", "wunderbar", "perfekt", "danke", "schön",
+]
+_INNER_NOTE_PLANNING_KEYWORDS = [
+    "planen", "vorhaben", "morgen", "nächste woche", "wir wollen", "wir denken",
+]
+
+# ---------------------------------------------------------------------------
 # System prompt — loaded from docs/GENUS_IDENTITY.md excerpt
 # ---------------------------------------------------------------------------
 
@@ -825,17 +839,13 @@ class ConversationAgent(Agent):
         lower = user_text.lower()
         note = None
 
-        stress_keywords = ["stress", "nervös", "angst", "sorge", "müde", "erschöpft", "schwierig", "problem"]
-        happy_keywords = ["freue", "toll", "super", "klasse", "wunderbar", "perfekt", "danke", "schön"]
-        planning_keywords = ["planen", "vorhaben", "morgen", "nächste woche", "wir wollen", "wir denken"]
-
-        if any(k in lower for k in stress_keywords):
+        if any(k in lower for k in _INNER_NOTE_STRESS_KEYWORDS):
             note = f"{user_id} wirkte beim letzten Gespräch angespannt. Nächstes Mal besonders rücksichtsvoll sein."
-        elif any(k in lower for k in happy_keywords):
+        elif any(k in lower for k in _INNER_NOTE_HAPPY_KEYWORDS):
             note = f"Gutes Gespräch mit {user_id}. Positive Stimmung."
         elif intent == Intent.DEV_REQUEST:
             note = f"{user_id} hat einen Dev-Run gestartet. Beim nächsten Mal nach Fortschritt fragen."
-        elif any(k in lower for k in planning_keywords):
+        elif any(k in lower for k in _INNER_NOTE_PLANNING_KEYWORDS):
             note = f"{user_id} plant etwas. Thema im Auge behalten."
 
         if note:

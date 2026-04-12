@@ -240,13 +240,20 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.fact_store = fact_store
         app.state.inner_monologue = inner_monologue
 
-        # Re-create ConversationAgent with memory stores wired in
+        # Re-create ConversationAgent with memory stores wired in.
+        # Preserve Phase 14 parameters from app.state if they were set.
         await conversation_agent.stop()
         conversation_agent = ConversationAgent(
             message_bus=bus,
             llm_router=llm_router,
             max_history=max_history,
             conversations_dir=conversations_dir,
+            # Phase 14 — preserve identity stores if already initialised
+            profile_store=getattr(app.state, "profile_store", None),
+            permission_engine=getattr(app.state, "permission_engine", None),
+            onboarding_agent=getattr(app.state, "onboarding_agent", None),
+            parental_agent=getattr(app.state, "parental_agent", None),
+            # Phase 15a — memory stores
             episode_store=episode_store,
             fact_store=fact_store,
             inner_monologue=inner_monologue,
