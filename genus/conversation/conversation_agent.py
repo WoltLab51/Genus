@@ -103,7 +103,7 @@ class IntentClassifier:
     _QUESTION_KEYWORDS = ["was", "wie", "warum", "wann", "wo", "wer", "what", "how", "why"]
     _MEMORY_KEYWORDS = ["erinner", "letzte woche", "besprochen", "vergessen", "history"]
     _SITUATION_KEYWORDS = [
-        "fahre", "unterwegs", "auf dem weg", "bin unterwegs",
+        "fahre", "unterwegs", "auf dem weg",
         "zuhause", "nach hause", "zu hause", "daheim",
         "termin", "meeting", "im büro", "in der arbeit",
     ]
