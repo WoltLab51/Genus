@@ -355,4 +355,51 @@ _r(TopicEntry(
     description="GrowthBridge hat einen DevLoop für einen Need gestartet.",
 ))
 
+# ---------------------------------------------------------------------------
+# memory domain
+# ---------------------------------------------------------------------------
+
+_r(TopicEntry(
+    topic="memory.compress.requested",
+    owner="NightScheduler",
+    direction="publish",
+    domain="memory",
+    description="NightScheduler fordert die Komprimierung einer Konversationssession zu einer Episode an.",
+))
+_r(TopicEntry(
+    topic="memory.compress.completed",
+    owner="MemoryAgent",
+    direction="publish",
+    domain="memory",
+    description="MemoryAgent hat eine Session erfolgreich zu einer Episode komprimiert.",
+))
+_r(TopicEntry(
+    topic="memory.compress.failed",
+    owner="MemoryAgent",
+    direction="publish",
+    domain="memory",
+    description="MemoryAgent konnte eine Session nicht komprimieren.",
+))
+_r(TopicEntry(
+    topic="memory.fact.upsert",
+    owner="ConversationAgent",
+    direction="publish",
+    domain="memory",
+    description="ConversationAgent möchte einen semantischen Fakt speichern oder aktualisieren.",
+))
+_r(TopicEntry(
+    topic="memory.fact.stored",
+    owner="MemoryAgent",
+    direction="publish",
+    domain="memory",
+    description="MemoryAgent hat einen semantischen Fakt erfolgreich gespeichert.",
+))
+_r(TopicEntry(
+    topic="memory.fact.conflict",
+    owner="MemoryAgent",
+    direction="publish",
+    domain="memory",
+    description="MemoryAgent hat einen Widerspruch zwischen neuem und gespeichertem Fakt erkannt.",
+))
+
 del _r

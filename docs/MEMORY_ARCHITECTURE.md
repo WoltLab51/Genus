@@ -145,7 +145,7 @@ GENUS fragt nach:
 | Phase | Was | Status |
 |---|---|---|
 | 12+13 | Working Memory (ConversationMemory) | ✅ |
-| 14 | Semantic Memory (Nutzer-Profile, Fakten) | 🔜 |
-| 14b | Episodic Memory (MemoryAgent, Nacht-Job) | 🔜 |
-| 14b | Konsistenz-Check | 🔜 |
+| 14 | Semantic Memory (Nutzer-Profile, Fakten) | ✅ |
+| 14b | Episodic Memory (MemoryAgent, Nacht-Job) | ✅ |
+| 14b | Konsistenz-Check | ✅ |
 | 15+ | Vektor-Suche (wenn Volumen groß wird) | 🔮 |
