@@ -274,6 +274,9 @@ class ConversationAgent(Agent):
         permission_engine: Optional PermissionEngine for access checks (Phase 14).
         onboarding_agent: Optional OnboardingAgent to handle new users (Phase 14).
         parental_agent:   Optional ParentalAgent to enforce child limits (Phase 14).
+        episode_store:    Optional EpisodeStore for episodic memory (Phase 15a).
+        fact_store:       Optional SemanticFactStore for semantic facts (Phase 15a).
+        inner_monologue:  Optional InnerMonologue for per-user notes (Phase 15a).
     """
 
     def __init__(
@@ -288,6 +291,10 @@ class ConversationAgent(Agent):
         permission_engine: Optional[Any] = None,
         onboarding_agent: Optional[Any] = None,
         parental_agent: Optional[Any] = None,
+        # Phase 15a — ResonanceLayer
+        episode_store: Optional[Any] = None,
+        fact_store: Optional[Any] = None,
+        inner_monologue: Optional[Any] = None,
     ) -> None:
         super().__init__(agent_id="ConversationAgent", name="ConversationAgent")
         self._bus = message_bus
@@ -303,6 +310,10 @@ class ConversationAgent(Agent):
         self._permission_engine = permission_engine
         self._onboarding_agent = onboarding_agent
         self._parental_agent = parental_agent
+        # Phase 15a — ResonanceLayer + InnerMonologue (all optional)
+        self._episode_store = episode_store
+        self._fact_store = fact_store
+        self._inner_monologue = inner_monologue
 
     # ------------------------------------------------------------------
     # Agent lifecycle
@@ -420,12 +431,21 @@ class ConversationAgent(Agent):
             response = await self._handle_situation_update(
                 text, user_id, situation_store
             )
+        elif intent == Intent.MEMORY_REQUEST:
+            response = await self._handle_memory_request(
+                text,
+                memory,
+                user_id,
+                situation=situation,
+                profile=profile,
+            )
         else:
-            # CHAT / QUESTION / MEMORY_REQUEST / UNKNOWN — all go through LLM
+            # CHAT / QUESTION / UNKNOWN — all go through LLM
             response = await self._chat_with_llm(
                 text,
                 memory,
                 intent,
+                user_id=user_id,
                 profile=profile,
                 room_context=room_context,
                 situation=situation,
@@ -433,6 +453,11 @@ class ConversationAgent(Agent):
             )
 
         memory.add_assistant(response.text)
+
+        # Phase 15a — InnerMonologue: Notiz nach bedeutsamen Gesprächen setzen
+        if self._inner_monologue is not None and len(text) > 20:
+            await self._maybe_set_inner_note(text, response.text, user_id, intent)
+
         return response
 
     # ------------------------------------------------------------------
@@ -445,10 +470,12 @@ class ConversationAgent(Agent):
         memory: ConversationMemory,
         intent: Intent = Intent.CHAT,
         *,
+        user_id: str = "",
         profile: Optional[Any] = None,
         room_context: Optional[Any] = None,
         situation: Optional[Any] = None,
         response_policy: Optional[Any] = None,
+        extra_system_block: Optional[str] = None,
     ) -> ConversationResponse:
         """Handle CHAT / QUESTION / UNKNOWN via LLM with system prompt + history."""
         if not self._llm_router:
@@ -501,6 +528,27 @@ class ConversationAgent(Agent):
                 llm_messages.append(
                     LLMMessage(role=LLMRole.SYSTEM, content=context_block)
                 )
+
+            # Phase 15a — extra_system_block (e.g. for MEMORY_REQUEST extended context)
+            if extra_system_block:
+                llm_messages.append(
+                    LLMMessage(role=LLMRole.SYSTEM, content=extra_system_block)
+                )
+
+            # Phase 15a — ResonanceLayer: Memory-Kontext immer injizieren.
+            # Das LLM entscheidet selbst ob und wie es ihn einbringt.
+            if user_id:
+                from genus.memory.resonance_layer import build_resonance_block
+                resonance_block = build_resonance_block(
+                    user_id,
+                    episode_store=self._episode_store,
+                    fact_store=self._fact_store,
+                    inner_monologue=self._inner_monologue,
+                )
+                if resonance_block:
+                    llm_messages.append(
+                        LLMMessage(role=LLMRole.SYSTEM, content=resonance_block)
+                    )
 
             for entry in history:
                 role_str = entry.get("role", "user")
@@ -712,6 +760,89 @@ class ConversationAgent(Agent):
             intent=Intent.SITUATION_UPDATE.value,
             actions_taken=["situation_stored"] if situation_store is not None else [],
         )
+
+    async def _handle_memory_request(
+        self,
+        text: str,
+        memory: ConversationMemory,
+        user_id: str,
+        *,
+        situation: Optional[Any] = None,
+        profile: Optional[Any] = None,
+    ) -> ConversationResponse:
+        """Beantwortet explizite Memory-Anfragen mit aktivem Episode-Zugriff.
+
+        Holt die letzten 5 Episodes (statt der Standard-3 vom ResonanceLayer)
+        und gibt sie vollständig an das LLM — für detaillierte Rückblicke.
+        """
+        from genus.memory.resonance_layer import build_resonance_block
+
+        # Erweiterter Kontext für explizite Memory-Anfragen
+        resonance_block = build_resonance_block(
+            user_id,
+            episode_store=self._episode_store,
+            fact_store=self._fact_store,
+            inner_monologue=self._inner_monologue,
+            max_episodes=5,  # mehr als normal
+        )
+
+        # Als Chat mit erweitertem Kontext-Hint behandeln
+        hint = (
+            f"[Der User fragt explizit nach Erinnerungen. "
+            f"Antworte basierend auf dem Gedächtnis-Block wenn vorhanden, "
+            f"oder sage ehrlich wenn du dich nicht erinnerst.]\n\n{text}"
+        )
+        return await self._chat_with_llm(
+            hint,
+            memory,
+            Intent.MEMORY_REQUEST,
+            user_id=user_id,
+            profile=profile,
+            situation=situation,
+            extra_system_block=resonance_block if resonance_block else None,
+        )
+
+    async def _maybe_set_inner_note(
+        self,
+        user_text: str,
+        genus_response: str,
+        user_id: str,
+        intent: Intent,
+    ) -> None:
+        """Setzt optional eine innere Notiz nach einem Gespräch.
+
+        Nur bei bedeutsamen Intents (nicht bei SYSTEM_COMMAND oder STATUS_REQUEST).
+        Kein LLM-Call — regel-basierte Heuristik.
+
+        Die Notiz ist eine kurze Zusammenfassung des Gesprächstons,
+        die das nächste Gespräch mit dem User subtil beeinflusst.
+        """
+        # Nur bei bedeutsamen Intents
+        if intent in (Intent.SYSTEM_COMMAND, Intent.STATUS_REQUEST):
+            return
+
+        # Einfache Heuristik: Stimmungs-Keywords im User-Text
+        lower = user_text.lower()
+        note = None
+
+        stress_keywords = ["stress", "nervös", "angst", "sorge", "müde", "erschöpft", "schwierig", "problem"]
+        happy_keywords = ["freue", "toll", "super", "klasse", "wunderbar", "perfekt", "danke", "schön"]
+        planning_keywords = ["planen", "vorhaben", "morgen", "nächste woche", "wir wollen", "wir denken"]
+
+        if any(k in lower for k in stress_keywords):
+            note = f"{user_id} wirkte beim letzten Gespräch angespannt. Nächstes Mal besonders rücksichtsvoll sein."
+        elif any(k in lower for k in happy_keywords):
+            note = f"Gutes Gespräch mit {user_id}. Positive Stimmung."
+        elif intent == Intent.DEV_REQUEST:
+            note = f"{user_id} hat einen Dev-Run gestartet. Beim nächsten Mal nach Fortschritt fragen."
+        elif any(k in lower for k in planning_keywords):
+            note = f"{user_id} plant etwas. Thema im Auge behalten."
+
+        if note:
+            try:
+                self._inner_monologue.set(user_id, note)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("InnerMonologue: could not set note: %s", exc)
 
     # ------------------------------------------------------------------
     # Memory management

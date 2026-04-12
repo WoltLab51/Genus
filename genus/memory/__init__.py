@@ -25,6 +25,10 @@ Public API::
     from genus.memory import compress_session
     from genus.memory import MemoryAgent
     from genus.memory import NightScheduler
+
+    # Phase 15a: ResonanceLayer + InnerMonologue
+    from genus.memory import build_resonance_block
+    from genus.memory import InnerMonologue, MonologueNote
 """
 
 from genus.memory.context_builder import (
@@ -36,11 +40,13 @@ from genus.memory.conversation_compressor import compress_session
 from genus.memory.episode_store import Episode, EpisodeStore
 from genus.memory.event_store import EventStore
 from genus.memory.fact_store import ConflictDetectedError, SemanticFact, SemanticFactStore
+from genus.memory.inner_monologue import InnerMonologue, MonologueNote
 from genus.memory.jsonl_event_store import EventEnvelope, JsonlEventStore
 from genus.memory.memory_agent import MemoryAgent
 from genus.memory.models import ArtifactRecord, JournalEvent, RunHeader
 from genus.memory.night_scheduler import NightScheduler
 from genus.memory.query import query_runs
+from genus.memory.resonance_layer import build_resonance_block
 from genus.memory.run_journal import RunJournal
 from genus.memory.store_jsonl import JsonlRunStore
 from genus.memory.tool_memory import ToolMemoryIndex, ToolUsageStat
@@ -74,4 +80,8 @@ __all__ = [
     "compress_session",
     "MemoryAgent",
     "NightScheduler",
+    # Phase 15a: ResonanceLayer + InnerMonologue
+    "build_resonance_block",
+    "InnerMonologue",
+    "MonologueNote",
 ]
