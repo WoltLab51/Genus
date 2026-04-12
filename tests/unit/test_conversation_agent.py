@@ -221,3 +221,195 @@ class TestConversationAgentLifecycle:
         await agent.start()
         await agent.stop()
         assert agent.state == AgentState.STOPPED
+
+
+# ---------------------------------------------------------------------------
+# Phase 15a — ResonanceLayer + InnerMonologue
+# ---------------------------------------------------------------------------
+
+
+class TestConversationAgentPhase15aBackwardCompat:
+    async def test_no_memory_stores_still_works(self, tmp_path):
+        """ConversationAgent without memory stores — backward compatible."""
+        agent = make_agent(tmp_path=tmp_path)
+        assert agent._episode_store is None
+        assert agent._fact_store is None
+        assert agent._inner_monologue is None
+
+    async def test_no_llm_no_inner_monologue_fallback(self, tmp_path):
+        """No LLM + inner_monologue provided → fallback response, no crash."""
+        from unittest.mock import MagicMock
+        im = MagicMock()
+        im.get_current.return_value = None
+        im.set.return_value = MagicMock()
+        bus = make_bus_spy()
+        from genus.conversation.conversation_agent import ConversationAgent
+        from pathlib import Path
+        agent = ConversationAgent(
+            message_bus=bus,
+            inner_monologue=im,
+            conversations_dir=tmp_path,
+        )
+        response = await agent.process_user_message(
+            text="Hey GENUS",
+            user_id="user1",
+            session_id="sess-compat",
+        )
+        assert isinstance(response.text, str)
+        assert len(response.text) > 0
+
+
+class TestConversationAgentMemoryRequest:
+    async def test_memory_request_calls_handle_memory_request(self, tmp_path):
+        """MEMORY_REQUEST → _handle_memory_request is called (via LLM or fallback)."""
+        from genus.llm.models import LLMResponse
+        from unittest.mock import MagicMock, AsyncMock, patch
+
+        mock_response = LLMResponse(content="Ich erinnere mich...", model="mock", provider="mock")
+        llm_router = MagicMock()
+        llm_router.complete = AsyncMock(return_value=mock_response)
+
+        bus = make_bus_spy()
+        from genus.conversation.conversation_agent import ConversationAgent
+        agent = ConversationAgent(
+            message_bus=bus,
+            llm_router=llm_router,
+            conversations_dir=tmp_path,
+        )
+
+        response = await agent.process_user_message(
+            text="Was haben wir letzte Woche besprochen?",
+            user_id="user1",
+            session_id="sess-mem-req",
+        )
+        # Should get a response (not crash), LLM was called
+        assert isinstance(response.text, str)
+        assert llm_router.complete.called
+
+
+class TestConversationAgentResonanceLayer:
+    async def test_resonance_block_injected_when_episode_store_present(self, tmp_path):
+        """When episode_store returns episodes, resonance block appears in LLM messages."""
+        from genus.llm.models import LLMResponse, LLMMessage
+        from unittest.mock import MagicMock, AsyncMock
+
+        # Capture LLM messages
+        captured_messages: list[list[LLMMessage]] = []
+
+        async def capture_complete(messages, **kwargs):
+            captured_messages.append(list(messages))
+            return LLMResponse(content="Antwort", model="mock", provider="mock")
+
+        llm_router = MagicMock()
+        llm_router.complete = AsyncMock(side_effect=capture_complete)
+
+        # Episode store with one episode
+        from genus.memory.episode_store import Episode
+        ep = Episode.create(
+            user_id="user1",
+            summary="Wir haben Solar besprochen",
+            topics=["solar"],
+            session_ids=["s1"],
+            message_count=5,
+        )
+        from genus.memory.episode_store import EpisodeStore
+        ep_store = EpisodeStore(base_dir=str(tmp_path / "episodes"))
+        ep_store.append(ep)
+
+        bus = make_bus_spy()
+        from genus.conversation.conversation_agent import ConversationAgent
+        agent = ConversationAgent(
+            message_bus=bus,
+            llm_router=llm_router,
+            episode_store=ep_store,
+            conversations_dir=tmp_path,
+        )
+
+        await agent.process_user_message(
+            text="Erzähl mir etwas",
+            user_id="user1",
+            session_id="sess-resonance",
+        )
+
+        assert captured_messages, "LLM must have been called"
+        messages = captured_messages[0]
+        # Find resonance block
+        contents = [m.content for m in messages]
+        resonance_found = any("GENUS Gedächtnis" in c for c in contents)
+        assert resonance_found, "Resonance block must appear in LLM messages"
+
+
+class TestConversationAgentInnerMonologue:
+    async def test_stress_keyword_sets_inner_note(self, tmp_path):
+        """User message with stress keyword → InnerMonologue.set is called."""
+        from unittest.mock import MagicMock
+
+        im = MagicMock()
+        im.get_current.return_value = None
+        im.set.return_value = MagicMock()
+
+        bus = make_bus_spy()
+        from genus.conversation.conversation_agent import ConversationAgent
+        agent = ConversationAgent(
+            message_bus=bus,
+            inner_monologue=im,
+            conversations_dir=tmp_path,
+        )
+
+        await agent.process_user_message(
+            text="Ich hab so viel Stress wegen der Arbeit heute",
+            user_id="user1",
+            session_id="sess-stress",
+        )
+
+        im.set.assert_called_once()
+        call_args = im.set.call_args
+        assert call_args[0][0] == "user1"  # user_id
+        assert "angespannt" in call_args[0][1].lower() or "stress" in call_args[0][1].lower()
+
+    async def test_system_command_does_not_set_inner_note(self, tmp_path):
+        """SYSTEM_COMMAND → InnerMonologue.set is NOT called."""
+        from unittest.mock import MagicMock
+
+        im = MagicMock()
+        im.set.return_value = MagicMock()
+
+        bus = make_bus_spy()
+        from genus.conversation.conversation_agent import ConversationAgent
+        agent = ConversationAgent(
+            message_bus=bus,
+            inner_monologue=im,
+            conversations_dir=tmp_path,
+        )
+
+        await agent.process_user_message(
+            text="Stopp alles, stress gibt es viel",
+            user_id="user1",
+            session_id="sess-kill",
+        )
+
+        im.set.assert_not_called()
+
+    async def test_short_text_does_not_set_inner_note(self, tmp_path):
+        """Message <= 20 chars → InnerMonologue.set is NOT called."""
+        from unittest.mock import MagicMock
+
+        im = MagicMock()
+        im.set.return_value = MagicMock()
+
+        bus = make_bus_spy()
+        from genus.conversation.conversation_agent import ConversationAgent
+        agent = ConversationAgent(
+            message_bus=bus,
+            inner_monologue=im,
+            conversations_dir=tmp_path,
+        )
+
+        await agent.process_user_message(
+            text="Hallo",  # <= 20 chars
+            user_id="user1",
+            session_id="sess-short",
+        )
+
+        im.set.assert_not_called()
+

@@ -222,6 +222,63 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
     except ImportError as exc:
         logger.warning("Identity module not available — skipping: %s", exc)
 
+    # 7b. Start Memory stores (Phase 15a) — EpisodeStore, SemanticFactStore, InnerMonologue
+    try:
+        from genus.memory.episode_store import EpisodeStore
+        from genus.memory.fact_store import SemanticFactStore
+        from genus.memory.inner_monologue import InnerMonologue
+
+        episodes_dir = Path(os.environ.get("GENUS_EPISODES_DIR", "var/episodes"))
+        facts_dir = Path(os.environ.get("GENUS_FACTS_DIR", "var/facts"))
+        monologue_dir = Path(os.environ.get("GENUS_MONOLOGUE_DIR", "var/inner_monologue"))
+
+        episode_store = EpisodeStore(base_dir=str(episodes_dir))
+        fact_store = SemanticFactStore(base_dir=str(facts_dir))
+        inner_monologue = InnerMonologue(base_dir=monologue_dir)
+
+        app.state.episode_store = episode_store
+        app.state.fact_store = fact_store
+        app.state.inner_monologue = inner_monologue
+
+        # Re-create ConversationAgent with memory stores wired in.
+        # Preserve Phase 14 parameters from app.state if they were set.
+        await conversation_agent.stop()
+        conversation_agent = ConversationAgent(
+            message_bus=bus,
+            llm_router=llm_router,
+            max_history=max_history,
+            conversations_dir=conversations_dir,
+            # Phase 14 — preserve identity stores if already initialised
+            profile_store=getattr(app.state, "profile_store", None),
+            permission_engine=getattr(app.state, "permission_engine", None),
+            onboarding_agent=getattr(app.state, "onboarding_agent", None),
+            parental_agent=getattr(app.state, "parental_agent", None),
+            # Phase 15a — memory stores
+            episode_store=episode_store,
+            fact_store=fact_store,
+            inner_monologue=inner_monologue,
+        )
+        await conversation_agent.initialize()
+        await conversation_agent.start()
+        app.state.conversation_agent = conversation_agent
+
+        # Re-create ConnectionManager so all new WebSocket/REST sessions also
+        # get the memory stores wired in (Phase 15a).
+        connection_manager = ConnectionManager(
+            default_llm_router=llm_router,
+            default_bus=bus,
+            conversations_dir=conversations_dir,
+            max_history=max_history,
+            episode_store=episode_store,
+            fact_store=fact_store,
+            inner_monologue=inner_monologue,
+        )
+        app.state.connection_manager = connection_manager
+
+        logger.info("Memory stores started (Phase 15a): EpisodeStore, SemanticFactStore, InnerMonologue")
+    except ImportError as exc:
+        logger.warning("Memory stores not available — skipping: %s", exc)
+
     # 8. Subscribe to run.started → trigger DevLoopOrchestrator
     async def _on_run_started(msg: Message) -> None:
         run_id = msg.metadata.get("run_id") or msg.payload.get("run_id")

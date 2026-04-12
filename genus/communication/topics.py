@@ -401,5 +401,19 @@ _r(TopicEntry(
     domain="memory",
     description="MemoryAgent hat einen Widerspruch zwischen neuem und gespeichertem Fakt erkannt.",
 ))
+_r(TopicEntry(
+    topic="memory.monologue.set",
+    owner="ConversationAgent",
+    direction="publish",
+    domain="memory",
+    description="ConversationAgent hat eine innere Notiz nach einem Gespräch gesetzt.",
+))
+_r(TopicEntry(
+    topic="memory.monologue.expired",
+    owner="NightScheduler",
+    direction="publish",
+    domain="memory",
+    description="NightScheduler hat abgelaufene InnerMonologue-Notizen bereinigt.",
+))
 
 del _r
