@@ -8,7 +8,11 @@ Design principles:
 - No business logic here — only wiring.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from genus.api._version import API_VERSION
 from genus.api.errors import ErrorHandlingMiddleware
@@ -97,5 +101,19 @@ def create_app(
     app.include_router(chat_router.router, tags=["chat"])
     app.include_router(chat_rest_router.router, tags=["chat"])
     app.include_router(identity_router.router, tags=["identity"])
+
+    # UI: served from genus/ui/index.html.
+    # Mount happens LAST so all API routes take priority.
+    # Exempt from auth middleware via EXEMPT_PATHS (see middleware.py).
+    _ui_dir = Path(__file__).parent.parent / "ui"
+    if _ui_dir.is_dir():
+        _static_dir = _ui_dir / "static"
+        if _static_dir.is_dir():
+            app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+        @app.get("/", include_in_schema=False)
+        async def serve_ui() -> FileResponse:
+            """Serve the GENUS Chat UI."""
+            return FileResponse(_ui_dir / "index.html")
 
     return app
