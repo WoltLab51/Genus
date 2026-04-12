@@ -65,7 +65,7 @@ class NightScheduler:
     def start(self) -> None:
         """Start the background asyncio task."""
         if self._task is None or self._task.done():
-            self._task = asyncio.get_event_loop().create_task(self._loop())
+            self._task = asyncio.get_running_loop().create_task(self._loop())
             logger.info("NightScheduler started (runs at %02d:00 UTC)", self._run_hour_utc)
 
     def stop(self) -> None:
