@@ -462,14 +462,12 @@
     loginBtn.addEventListener('click', () => {
       const key = apiKeyInput.value.trim();
       if (!key) return;
-      sessionStorage.setItem(SESSION_KEY, key);
       startChat(key);
     });
 
     // ── Logout ─────────────────────────────────────────────────────────
     logoutBtn.addEventListener('click', () => {
       teardown();
-      sessionStorage.removeItem(SESSION_KEY);
       showScreen('login');
       apiKeyInput.value = '';
       loginBtn.disabled = true;
