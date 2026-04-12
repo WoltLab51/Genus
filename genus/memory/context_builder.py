@@ -9,6 +9,9 @@ Design:
 - Returns structured dicts (JSON-serializable) and plain text summaries
 - Never loads full journal — only targeted artifact types
 - Gracefully handles missing artifacts
+
+Note: For token-budget-aware planner formatting, see
+genus/dev/context_formatter.format_episodic_for_planner()
 """
 
 from typing import Any, Dict, List, Optional

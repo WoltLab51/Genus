@@ -162,6 +162,49 @@ class TestConversationAgentMemory:
         )
 
 
+class TestConversationAgentLLMTemperature:
+    async def test_temperature_passed_to_llm_router(self, tmp_path):
+        """strategy.temperature must be forwarded exactly to llm_router.complete() — Fix 1."""
+        from genus.llm.models import LLMResponse
+        from genus.conversation.prompt_strategy import PromptStrategy
+        from genus.llm.router import TaskType
+
+        sentinel_temperature = 0.123
+        fixed_strategy = PromptStrategy(
+            task_type=TaskType.GENERAL,
+            max_tokens=512,
+            temperature=sentinel_temperature,
+            context_depth=10,
+            include_profile=True,
+            include_episodic=False,
+        )
+        mock_response = LLMResponse(
+            content="Hallo!",
+            model="mock",
+            provider="mock",
+        )
+        llm_router = MagicMock()
+        llm_router.complete = AsyncMock(return_value=mock_response)
+
+        agent = make_agent(llm_router=llm_router, tmp_path=tmp_path)
+        with patch(
+            "genus.conversation.prompt_strategy.resolve_prompt_strategy",
+            return_value=fixed_strategy,
+        ):
+            await agent.process_user_message(
+                text="Erzähl mir etwas",
+                user_id="user-001",
+                session_id="sess-temp",
+            )
+
+        llm_router.complete.assert_called_once()
+        call_kwargs = llm_router.complete.call_args.kwargs
+        assert "temperature" in call_kwargs, "temperature must be forwarded to llm_router.complete()"
+        assert call_kwargs["temperature"] == sentinel_temperature, (
+            f"Expected temperature={sentinel_temperature}, got {call_kwargs['temperature']}"
+        )
+
+
 class TestConversationAgentLifecycle:
     async def test_initialize_and_start(self, tmp_path):
         """ConversationAgent can be initialized and started without errors."""

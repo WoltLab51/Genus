@@ -468,7 +468,10 @@ class ConversationAgent(Agent):
             from genus.conversation.prompt_strategy import resolve_prompt_strategy
             from genus.llm.models import LLMMessage, LLMRole
 
-            # Resolve prompt strategy (intent-adaptive, policy-aware)
+            # Resolve prompt strategy (intent-adaptive, policy-aware).
+            # TODO(Phase 16 — Presence): derive response_policy from permission_engine
+            # once RoomContext and PresenceEngine are available. Until then, pass
+            # through any response_policy provided by callers.
             strategy = resolve_prompt_strategy(intent, profile, situation, response_policy)
 
             context = memory.get_context()
@@ -589,7 +592,13 @@ class ConversationAgent(Agent):
         self,
         memory: ConversationMemory,
     ) -> ConversationResponse:
-        """Return a status summary (stub — future versions will query RunStore)."""
+        """Return a status summary.
+
+        This is a stub implementation until Phase 12 (WebSocket + RunStore) is
+        complete. When Phase 12 lands, replace with a real RunStore query.
+
+        TODO(Phase 12): Query RunStore for active runs and return live status.
+        """
         return ConversationResponse(
             text=(
                 "Ich prüfe den aktuellen Status... "

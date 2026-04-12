@@ -82,3 +82,15 @@ class TestIntentClassifier:
     def test_no_false_positive_gleich(self, classifier):
         """'gleich' alone was removed — should not trigger SITUATION_UPDATE."""
         assert classifier.classify("Das machen wir gleich") == Intent.CHAT
+
+    def test_no_false_positive_gerade_frage(self, classifier):
+        """'Ich habe gerade eine Frage' must NOT be classified as SITUATION_UPDATE."""
+        assert classifier.classify("Ich habe gerade eine Frage") != Intent.SITUATION_UPDATE
+
+    def test_situation_update_auf_dem_weg_nach_hause(self, classifier):
+        """'auf dem Weg nach Hause' phrase → SITUATION_UPDATE."""
+        assert classifier.classify("Ich bin auf dem Weg nach Hause") == Intent.SITUATION_UPDATE
+
+    def test_situation_update_gleich_termin(self, classifier):
+        """'gleich einen Termin' → SITUATION_UPDATE (termin keyword matches)."""
+        assert classifier.classify("Ich habe gleich einen Termin") == Intent.SITUATION_UPDATE
