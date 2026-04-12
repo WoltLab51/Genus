@@ -10,7 +10,7 @@ Design:
 - Never loads full journal — only targeted artifact types
 - Gracefully handles missing artifacts
 
-Hinweis: Für token-budget-aware Planner-Formatierung siehe
+Note: For token-budget-aware planner formatting, see
 genus/dev/context_formatter.format_episodic_for_planner()
 """
 

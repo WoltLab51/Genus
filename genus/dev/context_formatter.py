@@ -6,9 +6,9 @@ plain-text block that can be prepended to the planner's system prompt.
 
 Purely functional — no IO, no side effects.
 
-Hinweis: Für allgemeine LLM-Kontext-Formatierung (ohne Token-Budget)
-siehe genus/memory/context_builder.format_context_as_text()
-Diese Funktion ist speziell für PlannerAgent optimiert (Pi-safe, 500-Token-Default).
+Note: For general LLM context formatting (without a token budget),
+see genus/memory/context_builder.format_context_as_text().
+This function is specifically optimized for PlannerAgent (Pi-safe, 500-token default).
 """
 
 from __future__ import annotations

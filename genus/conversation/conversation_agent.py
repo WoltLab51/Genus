@@ -469,8 +469,9 @@ class ConversationAgent(Agent):
             from genus.llm.models import LLMMessage, LLMRole
 
             # Resolve prompt strategy (intent-adaptive, policy-aware).
-            # TODO(Phase 16 — Presence): resolve response_policy from permission_engine
-            # once RoomContext and PresenceEngine are available. Until then: None.
+            # TODO(Phase 16 — Presence): derive response_policy from permission_engine
+            # once RoomContext and PresenceEngine are available. Until then, pass
+            # through any response_policy provided by callers.
             strategy = resolve_prompt_strategy(intent, profile, situation, response_policy)
 
             context = memory.get_context()
