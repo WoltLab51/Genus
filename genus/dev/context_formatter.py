@@ -5,6 +5,10 @@ Converts a list of episodic run-summary dicts into a token-budget-aware
 plain-text block that can be prepended to the planner's system prompt.
 
 Purely functional — no IO, no side effects.
+
+Hinweis: Für allgemeine LLM-Kontext-Formatierung (ohne Token-Budget)
+siehe genus/memory/context_builder.format_context_as_text()
+Diese Funktion ist speziell für PlannerAgent optimiert (Pi-safe, 500-Token-Default).
 """
 
 from __future__ import annotations
