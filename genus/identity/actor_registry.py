@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Iterable, List, Mapping, Optional, Set
+from typing import Dict, List, Mapping, Optional, Set
 
 from genus.identity.actor_config import ActorConfigDocument, ActorConfigError, load_actor_config
 
@@ -98,6 +98,31 @@ class ActorRegistry:
         if family is None:
             return False
         return actor.actor_id in family.members
+
+    def with_legacy_keys(
+        self,
+        *,
+        admin_key: str = "",
+        operator_key: str = "",
+        reader_key: str = "",
+    ) -> "ActorRegistry":
+        """Return a registry merged with legacy role keys without overwriting configured keys."""
+        legacy = ActorRegistry.legacy(
+            admin_key=admin_key,
+            operator_key=operator_key,
+            reader_key=reader_key,
+        )
+        merged_actors = dict(self._actors)
+        merged_actors.update(legacy._actors)
+        merged_map = dict(self._key_to_actor)
+        for key, actor_id in legacy._key_to_actor.items():
+            merged_map.setdefault(key, actor_id)
+        return ActorRegistry(
+            actors=merged_actors,
+            families=self._families,
+            key_to_actor=merged_map,
+            config_enabled=True,
+        )
 
     @classmethod
     def from_config(cls, config: ActorConfigDocument) -> "ActorRegistry":
@@ -207,21 +232,9 @@ def build_actor_registry(
         )
 
     registry = ActorRegistry.from_config(config)
-
     # Keep existing explicit role keys working even with config present.
-    legacy = ActorRegistry.legacy(
+    return registry.with_legacy_keys(
         admin_key=admin_key,
         operator_key=operator_key,
         reader_key=reader_key,
-    )
-    merged_actors = dict(registry._actors)
-    merged_actors.update(legacy._actors)
-    merged_map = dict(registry._key_to_actor)
-    for key, actor_id in legacy._key_to_actor.items():
-        merged_map.setdefault(key, actor_id)
-    return ActorRegistry(
-        actors=merged_actors,
-        families=registry._families,
-        key_to_actor=merged_map,
-        config_enabled=True,
     )

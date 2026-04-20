@@ -30,39 +30,56 @@ def authorize(
     resource: Resource | str,
     registry: Optional[ActorRegistry] = None,
 ) -> None:
-    """Authorize operation or raise :class:`AuthorizationError`."""
+    """Authorize an actor for an operation on a scoped resource.
+
+    Args:
+        actor: Authenticated actor to authorize.
+        operation: Operation name (``read``/``write``/``admin``) or enum value.
+        resource: Scope string (``system``, ``private:<user_id>``, ``family:<family_id>``)
+            or a :class:`Resource`.
+        registry: Optional actor registry used for runtime family membership checks when
+            the actor's local family set is incomplete.
+
+    Raises:
+        AuthorizationError: If the operation is not permitted by policy.
+    """
     op = Operation(operation)
     scope = resource.scope if isinstance(resource, Resource) else resource
 
-    if op is Operation.ADMIN and actor.role is not ActorRole.ADMIN:
-        raise AuthorizationError("Admin operation requires ADMIN actor")
+    if op == Operation.ADMIN and actor.role != ActorRole.ADMIN:
+        raise AuthorizationError(
+            f"Admin operation requires ADMIN role, but actor has '{actor.role.value}'"
+        )
 
     if scope == "system":
-        if actor.role is not ActorRole.ADMIN:
+        if actor.role != ActorRole.ADMIN:
             raise AuthorizationError("System scope requires ADMIN actor")
         return
 
     if scope.startswith("private:"):
         user_id = scope.split(":", 1)[1]
-        if actor.role is ActorRole.ADMIN:
+        if actor.role == ActorRole.ADMIN:
             return
         if actor.user_id != user_id:
             raise AuthorizationError(
-                f"Private scope '{scope}' requires matching actor.user_id"
+                f"Private scope '{scope}' requires user_id '{user_id}', "
+                f"but actor has user_id '{actor.user_id}'"
             )
         return
 
     if scope.startswith("family:"):
         family_id = scope.split(":", 1)[1]
-        if actor.role is ActorRole.ADMIN:
+        if actor.role == ActorRole.ADMIN:
             return
         is_member = family_id in actor.families
         if not is_member and registry is not None:
             is_member = registry.is_family_member(actor, family_id)
         if not is_member:
-            raise AuthorizationError(f"Actor '{actor.actor_id}' is not family member")
-        if op is Operation.WRITE:
-            if actor.role in {ActorRole.OPERATOR, ActorRole.ADMIN}:
+            raise AuthorizationError(
+                f"Actor '{actor.actor_id}' is not a member of family '{family_id}'"
+            )
+        if op == Operation.WRITE:
+            if actor.role == ActorRole.OPERATOR:
                 return
             if "family.write" in actor.capabilities:
                 return

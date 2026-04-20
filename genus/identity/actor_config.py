@@ -67,9 +67,15 @@ def resolve_config_path() -> Optional[Path]:
             raise ActorConfigError(f"GENUS_CONFIG_PATH file not found: {path}")
         return path
 
-    default_path = Path.cwd() / "genus.config.yaml"
-    if default_path.exists():
-        return default_path
+    seen = set()
+    for start in (Path.cwd().resolve(), Path(__file__).resolve().parent):
+        for candidate_dir in [start, *start.parents]:
+            if candidate_dir in seen:
+                continue
+            seen.add(candidate_dir)
+            default_path = candidate_dir / "genus.config.yaml"
+            if default_path.exists():
+                return default_path
     return None
 
 

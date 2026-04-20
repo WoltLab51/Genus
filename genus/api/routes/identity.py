@@ -122,7 +122,7 @@ def _get_user_id_from_request(request: Request) -> str:
     if master_key and token == master_key:
         return "ronny_wolter"
     actor = getattr(request.state, "actor", None)
-    if actor is not None and getattr(actor, "user_id", None):
+    if actor is not None and actor.user_id:
         return actor.user_id
     # Default: use the role as a hint (placeholder until user-key mapping is built)
     role = getattr(request.state, "role", "guest")
@@ -135,7 +135,10 @@ async def get_actor_identity(request: Request) -> Dict[str, Any]:
     _require_auth(request)
     actor = getattr(request.state, "actor", None)
     if actor is None:
-        raise HTTPException(status_code=503, detail="Actor identity unavailable")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal error: actor identity not set in request context",
+        )
     return actor.as_identity_payload()
 
 
