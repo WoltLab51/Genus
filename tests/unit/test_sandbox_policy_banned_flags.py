@@ -47,12 +47,12 @@ class TestBannedFlagsDefault:
 
     def test_force_with_lease_allowed(self):
         """--force-with-lease is the safe alternative and must NOT be banned."""
-        policy = SandboxPolicy()
+        policy = SandboxPolicy(allowed_argv_prefixes=[["git", "push"]])
         cmd = make_cmd(["git", "push", "origin", "main", "--force-with-lease"])
         policy.validate(cmd)  # must not raise
 
     def test_normal_push_allowed(self):
-        policy = SandboxPolicy()
+        policy = SandboxPolicy(allowed_argv_prefixes=[["git", "push"]])
         cmd = make_cmd(["git", "push", "origin", "main"])
         policy.validate(cmd)  # must not raise
 
@@ -68,7 +68,10 @@ class TestBannedFlagsDefault:
 
 class TestBannedFlagsCustom:
     def test_empty_banned_flags_allows_force(self):
-        policy = SandboxPolicy(banned_flags=[])
+        policy = SandboxPolicy(
+            allowed_argv_prefixes=[["git", "push"]],
+            banned_flags=[],
+        )
         cmd = make_cmd(["git", "push", "origin", "main", "--force"])
         policy.validate(cmd)  # must not raise with empty banned_flags
 
