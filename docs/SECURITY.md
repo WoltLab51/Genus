@@ -20,6 +20,7 @@
 | **Strukturierte Fehlerantworten** | Keine internen Details in Fehlerantworten (kein Stack-Trace) | `genus/api/errors.py` ✅ |
 | **Rollenmodell** | `Role.READER/OPERATOR/ADMIN` als Capability-Bündel; `build_policy_from_roles()` übersetzt Rollen in TopicAclPolicy | `genus/security/roles.py`, `genus/security/role_acl.py` ✅ |
 | **Kill-Switch API-Endpoint** | `POST /kill-switch/activate` und `/deactivate` erfordern Admin-Rolle; `GET /kill-switch/status` erfordert Operator | `genus/api/routers/kill_switch.py` ✅ |
+| **Actor Identity Spine** | API-Key authentifiziert jetzt einen Actor (`human/device/system`) inkl. Family-Zuordnung; verfügbar über `request.state.actor` und `GET /v1/identity/me` | `genus/identity/actor_config.py`, `genus/identity/actor_registry.py`, `genus/identity/authorization.py`, `genus/api/middleware.py` ✅ |
 | **Append-only EventStore** | Events können nicht mutiert oder gelöscht werden – manipulationssicheres Audit-Log | `genus/memory/jsonl_event_store.py` |
 
 ---
@@ -113,6 +114,7 @@ ks.deactivate(actor="ops-team")
 | ENV-Variable | Bedeutung | Empfehlung |
 |---|---|---|
 | `API_KEY` | API-Schlüssel für alle Endpunkte (Pflicht) | Mindestens 32 Zeichen, zufällig generiert |
+| `GENUS_CONFIG_PATH` | Optionaler Pfad zu `genus.config.yaml` (Actor/Family/API-Key-Mapping) | Keys immer als ENV setzen; Datei enthält nur `key_env`-Namen |
 | `GENUS_EVENTSTORE_DIR` | Pfad für JSONL-Event-Logs | Außerhalb des Web-Roots, Zugriff einschränken |
 | `GENUS_ENV` | `development` oder `production` | In Production: `production` setzen (deaktiviert Debug-Details in Fehlern) |
 

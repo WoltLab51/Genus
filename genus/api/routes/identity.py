@@ -121,9 +121,22 @@ def _get_user_id_from_request(request: Request) -> str:
     token = auth_header[len("Bearer "):] if auth_header.startswith("Bearer ") else ""
     if master_key and token == master_key:
         return "ronny_wolter"
+    actor = getattr(request.state, "actor", None)
+    if actor is not None and getattr(actor, "user_id", None):
+        return actor.user_id
     # Default: use the role as a hint (placeholder until user-key mapping is built)
     role = getattr(request.state, "role", "guest")
     return f"__role_{role}"
+
+
+@router.get("/v1/identity/me")
+async def get_actor_identity(request: Request) -> Dict[str, Any]:
+    """Return actor identity resolved from API key authentication."""
+    _require_auth(request)
+    actor = getattr(request.state, "actor", None)
+    if actor is None:
+        raise HTTPException(status_code=503, detail="Actor identity unavailable")
+    return actor.as_identity_payload()
 
 
 # ---------------------------------------------------------------------------
