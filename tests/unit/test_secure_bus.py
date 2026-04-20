@@ -241,7 +241,7 @@ class TestRedisMessageBusSubscribe:
         with pytest.raises(ValueError, match="wildcard"):
             bus.subscribe("*.call.requested", "TestSub", lambda m: None)
 
-    def test_exact_topic_subscribe_does_not_raise(self):
+    async def test_exact_topic_subscribe_does_not_raise(self):
         """subscribe() with an exact topic (no '*') must not raise."""
         from genus.communication.redis_message_bus import RedisMessageBus
 

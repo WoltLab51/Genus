@@ -76,10 +76,7 @@ class SandboxPolicy:
                 ["git", "checkout", "-b"],
                 ["git", "add", "-A"],
                 ["git", "commit", "-m"],
-                # Git push commands (PR #29)
-                ["git", "push"],
             ]
-
         # Default: no environment variables allowed
         if allowed_env_keys is None:
             allowed_env_keys = set()

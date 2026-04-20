@@ -559,7 +559,6 @@ def _create_git_policy() -> SandboxPolicy:
             ["git", "checkout", "-b"],
             ["git", "add", "-A"],
             ["git", "commit", "-m"],
-            ["git", "push"],
         ],
         # Explicitly ban dangerous push flags (--force-with-lease is intentionally allowed)
         banned_flags=["--force", "-f", "--no-verify", "--delete", "--mirror", "--all"],
