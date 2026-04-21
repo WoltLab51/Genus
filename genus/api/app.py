@@ -22,6 +22,7 @@ from genus.api.routers import kill_switch as kill_switch_router
 from genus.api.routes import chat as chat_router
 from genus.api.routes import chat_rest as chat_rest_router
 from genus.api.routes import identity as identity_router
+from genus.api.routes import memory as memory_router
 from genus.identity.actor_registry import build_actor_registry
 
 
@@ -107,6 +108,7 @@ def create_app(
     app.include_router(chat_router.router, tags=["chat"])
     app.include_router(chat_rest_router.router, tags=["chat"])
     app.include_router(identity_router.router, tags=["identity"])
+    app.include_router(memory_router.router, tags=["memory"])
 
     # UI: served from genus/ui/index.html.
     # Mount happens LAST so all API routes take priority.

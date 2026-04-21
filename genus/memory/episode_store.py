@@ -54,6 +54,8 @@ class Episode:
     created_at: str
     message_count: int
     source: str  # "llm" | "fallback"
+    scope: str = ""
+    created_by: str = ""
 
     # ------------------------------------------------------------------
     # Serialisation helpers
@@ -70,20 +72,25 @@ class Episode:
             "created_at": self.created_at,
             "message_count": self.message_count,
             "source": self.source,
+            "scope": self.scope,
+            "created_by": self.created_by,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Episode":
         """Reconstruct an Episode from a dict (e.g. parsed from JSONL)."""
+        user_id = data["user_id"]
         return cls(
             episode_id=data["episode_id"],
-            user_id=data["user_id"],
+            user_id=user_id,
             summary=data["summary"],
             topics=list(data.get("topics", [])),
             session_ids=list(data.get("session_ids", [])),
             created_at=data["created_at"],
             message_count=int(data.get("message_count", 0)),
             source=data.get("source", "fallback"),
+            scope=data.get("scope") or f"private:{user_id}",
+            created_by=data.get("created_by", ""),
         )
 
     @classmethod
@@ -95,6 +102,8 @@ class Episode:
         session_ids: List[str],
         message_count: int,
         source: str = "fallback",
+        scope: str = "",
+        created_by: str = "",
     ) -> "Episode":
         """Factory: create a new Episode with a generated UUID and current UTC timestamp."""
         return cls(
@@ -106,6 +115,8 @@ class Episode:
             created_at=datetime.now(timezone.utc).isoformat(),
             message_count=message_count,
             source=source,
+            scope=scope or f"private:{user_id}",
+            created_by=created_by,
         )
 
 
@@ -136,9 +147,10 @@ class EpisodeStore:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(episode.to_dict(), ensure_ascii=False) + "\n")
 
-    def get_recent(self, user_id: str, limit: int = 5) -> List[Episode]:
+    def get_recent(self, user_id: str, limit: int = 5, scope: Optional[str] = None) -> List[Episode]:
         """Return the *limit* most recent episodes for *user_id*.
 
+        If *scope* is given, only episodes with that exact scope are returned.
         Returns an empty list when no file exists yet.
         """
         path = self._file_path(user_id)
@@ -153,7 +165,10 @@ class EpisodeStore:
                     if not line:
                         continue
                     try:
-                        episodes.append(Episode.from_dict(json.loads(line)))
+                        ep = Episode.from_dict(json.loads(line))
+                        if scope is not None and ep.scope != scope:
+                            continue
+                        episodes.append(ep)
                     except (json.JSONDecodeError, KeyError) as exc:
                         logger.warning("Skipping malformed episode line: %s", exc)
         except OSError as exc:
@@ -167,9 +182,11 @@ class EpisodeStore:
         user_id: str,
         keywords: List[str],
         limit: int = 3,
+        scope: Optional[str] = None,
     ) -> List[Episode]:
         """Return up to *limit* episodes whose summary or topics contain any keyword.
 
+        If *scope* is given, only episodes with that exact scope are searched.
         Matching is case-insensitive substring search.
         Returns ``[]`` when there are no matches.
         """
@@ -190,6 +207,9 @@ class EpisodeStore:
                         episode = Episode.from_dict(json.loads(line))
                     except (json.JSONDecodeError, KeyError) as exc:
                         logger.warning("Skipping malformed episode line: %s", exc)
+                        continue
+
+                    if scope is not None and episode.scope != scope:
                         continue
 
                     searchable = episode.summary.lower() + " " + " ".join(
