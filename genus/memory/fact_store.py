@@ -72,6 +72,8 @@ class SemanticFact:
     key: str
     value: str
     source: str
+    scope: str
+    created_by: str
     created_at: str
     updated_at: str
     notes: Optional[str] = None
@@ -88,6 +90,8 @@ class SemanticFact:
             "key": self.key,
             "value": self.value,
             "source": self.source,
+            "scope": self.scope,
+            "created_by": self.created_by,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "notes": self.notes,
@@ -102,6 +106,8 @@ class SemanticFact:
             key=data["key"],
             value=data["value"],
             source=data.get("source", ""),
+            scope=data.get("scope", ""),
+            created_by=data.get("created_by", ""),
             created_at=data["created_at"],
             updated_at=data.get("updated_at", data["created_at"]),
             notes=data.get("notes"),
@@ -115,6 +121,8 @@ class SemanticFact:
         value: str,
         source: str = "",
         notes: Optional[str] = None,
+        scope: str = "",
+        created_by: str = "",
     ) -> "SemanticFact":
         """Factory: create a new SemanticFact with generated UUID and current timestamp."""
         now = datetime.now(timezone.utc).isoformat()
@@ -124,6 +132,8 @@ class SemanticFact:
             key=key,
             value=value,
             source=source,
+            scope=scope,
+            created_by=created_by,
             created_at=now,
             updated_at=now,
             notes=notes,
@@ -164,7 +174,7 @@ class SemanticFactStore:
             ConflictDetectedError: When an entry with the same key but a
                 different value already exists.
         """
-        existing = self.get(fact.user_id, fact.key)
+        existing = self.get(fact.user_id, fact.key, scope=fact.scope)
         if existing is not None and existing.value != fact.value:
             raise ConflictDetectedError(
                 key=fact.key,
@@ -182,18 +192,20 @@ class SemanticFactStore:
             key=fact.key,
             value=fact.value,
             source=fact.source,
+            scope=fact.scope,
+            created_by=fact.created_by,
             created_at=fact.created_at,
             updated_at=now,
             notes=fact.notes,
         )
         return self._append(updated)
 
-    def get(self, user_id: str, key: str) -> Optional[SemanticFact]:
+    def get(self, user_id: str, key: str, scope: Optional[str] = None) -> Optional[SemanticFact]:
         """Return the most recent fact for *(user_id, key)*, or ``None``."""
-        all_facts = self.get_all(user_id)
+        all_facts = self.get_all(user_id, scope=scope)
         return all_facts.get(key)
 
-    def get_all(self, user_id: str) -> Dict[str, SemanticFact]:
+    def get_all(self, user_id: str, scope: Optional[str] = None) -> Dict[str, SemanticFact]:
         """Return all facts for *user_id* as ``{key: SemanticFact}``.
 
         Last-write-wins: later entries override earlier ones.
@@ -212,6 +224,8 @@ class SemanticFactStore:
                         continue
                     try:
                         fact = SemanticFact.from_dict(json.loads(line))
+                        if scope is not None and fact.scope != scope:
+                            continue
                         result[fact.key] = fact  # last-write-wins
                     except (json.JSONDecodeError, KeyError) as exc:
                         logger.warning("Skipping malformed fact line: %s", exc)

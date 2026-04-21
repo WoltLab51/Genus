@@ -31,6 +31,8 @@ class TestSemanticFactRoundTrip:
         assert restored.key == fact.key
         assert restored.value == fact.value
         assert restored.source == fact.source
+        assert restored.scope == fact.scope
+        assert restored.created_by == fact.created_by
         assert restored.created_at == fact.created_at
         assert restored.updated_at == fact.updated_at
         assert restored.notes == fact.notes
@@ -45,6 +47,8 @@ class TestSemanticFactRoundTrip:
         }
         fact = SemanticFact.from_dict(data)
         assert fact.source == ""
+        assert fact.scope == ""
+        assert fact.created_by == ""
         assert fact.notes is None
         assert fact.updated_at == data["created_at"]
 
@@ -185,3 +189,29 @@ class TestLastWriteWins:
 
         assert store.get("eve", "a").value == "updated"
         assert store.get("eve", "b").value == "2"
+
+    def test_same_key_different_scope_do_not_conflict(self, tmp_path):
+        store = SemanticFactStore(base_dir=str(tmp_path))
+        store.upsert(
+            SemanticFact.create(
+                user_id="eve",
+                key="theme",
+                value="light",
+                scope="private:eve",
+            )
+        )
+        store.upsert(
+            SemanticFact.create(
+                user_id="eve",
+                key="theme",
+                value="dark",
+                scope="family:family-1",
+            )
+        )
+
+        private_fact = store.get("eve", "theme", scope="private:eve")
+        family_fact = store.get("eve", "theme", scope="family:family-1")
+        assert private_fact is not None
+        assert family_fact is not None
+        assert private_fact.value == "light"
+        assert family_fact.value == "dark"
