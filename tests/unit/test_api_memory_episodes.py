@@ -1,5 +1,7 @@
 """Unit tests for /v1/memory/episodes — Memory API v1."""
 
+import json
+
 from fastapi.testclient import TestClient
 
 from genus.api.app import create_app
@@ -258,7 +260,6 @@ def test_legacy_episode_without_scope_returned_by_default(tmp_path, monkeypatch)
     app = create_app()
     store = EpisodeStore(base_dir=str(tmp_path / "episodes"))
     # Manually write a legacy line without scope field
-    import json
     ep_dir = tmp_path / "episodes"
     ep_dir.mkdir(parents=True, exist_ok=True)
     legacy_line = {
