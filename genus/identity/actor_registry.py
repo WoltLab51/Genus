@@ -142,6 +142,10 @@ class ActorRegistry:
                     f"Invalid actor role '{raw_actor.role}' for actor '{raw_actor.actor_id}'"
                 ) from exc
 
+            if raw_actor.actor_id in actors:
+                raise ActorConfigError(
+                    f"Duplicate actor_id '{raw_actor.actor_id}' in actor configuration"
+                )
             actors[raw_actor.actor_id] = Actor(
                 actor_id=raw_actor.actor_id,
                 type=actor_type,
