@@ -2,10 +2,6 @@
 
 import pytest
 
-from genus.functional_agents.base import AgentContext, AgentResponse, FunctionalAgent
-from genus.functional_agents.registry import FunctionalAgentRegistry
-from genus.functional_agents.home_agent import HomeAgent
-from genus.functional_agents.family_agent import FamilyAgent
 from genus.functional_agents import (
     AgentContext,
     AgentResponse,
