@@ -172,6 +172,12 @@ class ActorRegistry:
                 raise ActorConfigError(
                     f"Environment variable '{mapping.key_env}' is not set for actor '{mapping.actor_id}'"
                 )
+            existing_actor_id = key_to_actor.get(key_value)
+            if existing_actor_id is not None and existing_actor_id != mapping.actor_id:
+                raise ActorConfigError(
+                    f"Environment variable '{mapping.key_env}' for actor '{mapping.actor_id}' "
+                    f"resolves to an API key value already assigned to actor '{existing_actor_id}'"
+                )
             key_to_actor[key_value] = mapping.actor_id
 
         return cls(
