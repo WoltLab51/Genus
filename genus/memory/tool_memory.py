@@ -11,11 +11,13 @@ The index can only aggregate frequency and phase co-occurrence.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from genus.memory.models import JournalEvent
 from genus.memory.run_journal import RunJournal
 from genus.memory.store_jsonl import JsonlRunStore
+if TYPE_CHECKING:
+    from genus.builder.models import BuildResult
 
 
 @dataclass
@@ -170,3 +172,22 @@ class ToolMemoryIndex:
     def is_built(self) -> bool:
         """Whether the index has been built at least once."""
         return self._built
+
+
+class ToolBuildMemory:
+    """Simple in-memory store for builder results."""
+
+    def __init__(self) -> None:
+        self._builds: Dict[str, dict] = {}
+
+    def record_build_result(self, result: "BuildResult") -> None:
+        self._builds[result.request_id] = result.model_dump(mode="json")
+
+    def get(self, request_id: str) -> Optional[dict]:
+        return self._builds.get(request_id)
+
+    def list_all(self) -> List[dict]:
+        return list(self._builds.values())
+
+    def delete(self, request_id: str) -> bool:
+        return self._builds.pop(request_id, None) is not None
