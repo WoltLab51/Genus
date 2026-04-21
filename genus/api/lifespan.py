@@ -301,6 +301,25 @@ async def genus_lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     bus.subscribe(RUN_STARTED, "lifespan:run.started", _on_run_started)
 
+    # 9. Functional Agent Registry (GENUS-2.0 — Phase 3)
+    try:
+        from genus.functional_agents import (
+            FunctionalAgentRegistry,
+            HomeAgent,
+            FamilyAgent,
+        )
+
+        functional_registry = FunctionalAgentRegistry()
+        functional_registry.register(HomeAgent())
+        functional_registry.register(FamilyAgent())
+        app.state.functional_agent_registry = functional_registry
+        logger.info(
+            "FunctionalAgentRegistry started (agents: %s)",
+            functional_registry.agent_ids(),
+        )
+    except ImportError as exc:
+        logger.warning("FunctionalAgentRegistry not available — skipping: %s", exc)
+
     logger.info("GENUS API started — all agents active")
 
     yield  # API is running

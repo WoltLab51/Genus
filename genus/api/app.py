@@ -19,6 +19,7 @@ from genus.api.errors import ErrorHandlingMiddleware
 from genus.api.middleware import ApiKeyMiddleware
 from genus.api.routers import health, outcome, runs
 from genus.api.routers import kill_switch as kill_switch_router
+from genus.api.routes import agents as agents_router
 from genus.api.routes import chat as chat_router
 from genus.api.routes import chat_rest as chat_rest_router
 from genus.api.routes import identity as identity_router
@@ -109,6 +110,17 @@ def create_app(
     app.include_router(chat_rest_router.router, tags=["chat"])
     app.include_router(identity_router.router, tags=["identity"])
     app.include_router(memory_router.router, tags=["memory"])
+    app.include_router(agents_router.router, tags=["agents"])
+
+    # v1 prefix aliases — make legacy endpoints also reachable under /v1/
+    # Kill-switch already has its own /v1/admin/kill-switch path in addition.
+    app.include_router(runs.router, prefix="/v1/runs", include_in_schema=False)
+    app.include_router(outcome.router, prefix="/v1/outcome", include_in_schema=False)
+    app.include_router(
+        kill_switch_router.router,
+        prefix="/v1/admin/kill-switch",
+        tags=["admin"],
+    )
 
     # UI: served from genus/ui/index.html.
     # Mount happens LAST so all API routes take priority.

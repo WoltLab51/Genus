@@ -212,3 +212,110 @@ async def create_episode(request: Request, body: CreateEpisodeRequest) -> Dict[s
     )
     episode_store.append(episode)
     return _episode_to_payload(episode)
+
+
+# ---------------------------------------------------------------------------
+# Memory search
+# ---------------------------------------------------------------------------
+
+
+class MemorySearchRequest(BaseModel):
+    """Request body for POST /v1/memory/search.
+
+    At least one of *query* or *keywords* must be provided.
+    When *query* is given it is tokenised into keywords automatically.
+    """
+
+    query: Optional[str] = None
+    keywords: List[str] = Field(default_factory=list)
+    user_id: Optional[str] = None
+    scope: Optional[str] = None
+    include_facts: bool = True
+    include_episodes: bool = True
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+@router.post("/v1/memory/search")
+async def search_memory(
+    request: Request,
+    body: MemorySearchRequest,
+) -> Dict[str, Any]:
+    """Keyword search across facts and episodes.
+
+    Searches ``SemanticFactStore`` (key/value substring match) and
+    ``EpisodeStore`` (summary + topic substring match) for the given
+    *keywords*.  When *query* is provided it is split into whitespace-
+    separated tokens and merged with *keywords*.
+
+    Returns::
+
+        {
+            "facts":    [ { <fact fields> }, … ],
+            "episodes": [ { <episode fields> }, … ],
+            "query":    "the resolved query string",
+            "keywords": ["kw1", "kw2"],
+        }
+
+    Auth: any authenticated user (reader+).
+    """
+    _require_auth(request)
+    resolved_user_id = _resolve_user_id(request, body.user_id)
+    resolved_scope = _resolve_scope(body.scope, resolved_user_id)
+    _validate_scope_user(resolved_scope, resolved_user_id)
+    _authorize(request, Operation.READ, resolved_scope)
+
+    # Build keyword list from body.query + body.keywords
+    keywords: List[str] = list(body.keywords)
+    if body.query:
+        keywords.extend(body.query.split())
+    # Deduplicate while preserving order, filter empty strings
+    seen: set = set()
+    unique_keywords: List[str] = []
+    for kw in keywords:
+        kw = kw.strip()
+        if kw and kw not in seen:
+            seen.add(kw)
+            unique_keywords.append(kw)
+
+    if not unique_keywords:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one keyword or a non-empty query is required",
+        )
+
+    facts_result: List[Dict[str, Any]] = []
+    episodes_result: List[Dict[str, Any]] = []
+
+    if body.include_facts:
+        fact_store = getattr(request.app.state, "fact_store", None)
+        if fact_store is None:
+            raise HTTPException(status_code=503, detail="Memory module not available")
+        all_facts = fact_store.get_all(resolved_user_id, scope=resolved_scope)
+        lower_kws = [kw.lower() for kw in unique_keywords]
+        for fact in all_facts.values():
+            searchable = f"{fact.key} {fact.value} {fact.notes or ''}".lower()
+            if any(kw in searchable for kw in lower_kws):
+                facts_result.append(_fact_to_payload(fact))
+                if len(facts_result) >= body.limit:
+                    break
+
+    if body.include_episodes:
+        episode_store = getattr(request.app.state, "episode_store", None)
+        if episode_store is None:
+            raise HTTPException(status_code=503, detail="Memory module not available")
+        episodes_result = [
+            _episode_to_payload(ep)
+            for ep in episode_store.search(
+                resolved_user_id,
+                unique_keywords,
+                limit=body.limit,
+                scope=resolved_scope,
+            )
+        ]
+
+    return {
+        "facts": facts_result,
+        "episodes": episodes_result,
+        "query": body.query or "",
+        "keywords": unique_keywords,
+    }
