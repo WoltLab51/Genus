@@ -111,9 +111,10 @@ def _require_admin_or_superadmin(request: Request) -> None:
 def _get_user_id_from_request(request: Request) -> str:
     """Map the authenticated token to a user_id.
 
-    Master key → ronny_wolter.
-    Other keys → look up from profile store by api_key field (future).
-    For now: admin role → ronny_wolter; others → "anonymous".
+    Resolution order:
+    1) Master key → ``ronny_wolter``
+    2) Authenticated actor with ``user_id`` on ``request.state.actor`` → that ``user_id``
+    3) Fallback placeholder derived from role: ``__role_<role>``
     """
     import os
     master_key = os.environ.get("GENUS_MASTER_KEY", "")
