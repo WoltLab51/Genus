@@ -68,9 +68,9 @@ def _fact_to_payload(fact: SemanticFact) -> Dict[str, Any]:
         "key": fact.key,
         "value": fact.value,
         "notes": fact.notes,
-        "source": fact.source or "api",
+        "source": fact.source,
         "scope": fact.scope,
-        "created_by": fact.created_by or "system",
+        "created_by": fact.created_by,
         "created_at": fact.created_at,
         "updated_at": fact.updated_at,
     }
