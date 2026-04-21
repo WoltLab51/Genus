@@ -237,3 +237,50 @@ def test_episode_store_returns_503_when_not_configured(tmp_path, monkeypatch):
             headers={"Authorization": "Bearer papa-secret"},
         )
     assert response.status_code == 503
+
+
+def test_invalid_scope_format_returns_400(tmp_path, monkeypatch):
+    _configure_actor_registry(monkeypatch, tmp_path)
+    app = create_app()
+    app.state.episode_store = EpisodeStore(base_dir=str(tmp_path / "episodes"))
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/v1/memory/episodes?scope=totally-invalid",
+            headers={"Authorization": "Bearer papa-secret"},
+        )
+    assert response.status_code == 400
+
+
+def test_legacy_episode_without_scope_returned_by_default(tmp_path, monkeypatch):
+    """Episodes written before scope field existed (scope absent / empty) are returned."""
+    _configure_actor_registry(monkeypatch, tmp_path)
+    app = create_app()
+    store = EpisodeStore(base_dir=str(tmp_path / "episodes"))
+    # Manually write a legacy line without scope field
+    import json
+    ep_dir = tmp_path / "episodes"
+    ep_dir.mkdir(parents=True, exist_ok=True)
+    legacy_line = {
+        "episode_id": "legacy-id",
+        "user_id": "papa",
+        "summary": "Old summary",
+        "topics": [],
+        "session_ids": [],
+        "created_at": "2025-01-01T00:00:00+00:00",
+        "message_count": 1,
+        "source": "fallback",
+    }
+    (ep_dir / "papa.jsonl").write_text(json.dumps(legacy_line) + "\n", encoding="utf-8")
+    app.state.episode_store = store
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        # Default scope = private:papa — legacy episode must show up
+        response = client.get(
+            "/v1/memory/episodes",
+            headers={"Authorization": "Bearer papa-secret"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["scope"] == "private:papa"

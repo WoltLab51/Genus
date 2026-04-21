@@ -79,16 +79,17 @@ class Episode:
     @classmethod
     def from_dict(cls, data: dict) -> "Episode":
         """Reconstruct an Episode from a dict (e.g. parsed from JSONL)."""
+        user_id = data["user_id"]
         return cls(
             episode_id=data["episode_id"],
-            user_id=data["user_id"],
+            user_id=user_id,
             summary=data["summary"],
             topics=list(data.get("topics", [])),
             session_ids=list(data.get("session_ids", [])),
             created_at=data["created_at"],
             message_count=int(data.get("message_count", 0)),
             source=data.get("source", "fallback"),
-            scope=data.get("scope", ""),
+            scope=data.get("scope") or f"private:{user_id}",
             created_by=data.get("created_by", ""),
         )
 
@@ -114,7 +115,7 @@ class Episode:
             created_at=datetime.now(timezone.utc).isoformat(),
             message_count=message_count,
             source=source,
-            scope=scope,
+            scope=scope or f"private:{user_id}",
             created_by=created_by,
         )
 

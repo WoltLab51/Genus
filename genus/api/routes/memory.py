@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from genus.identity.authorization import AuthorizationError, Operation, authorize
 from genus.memory.episode_store import Episode
 from genus.memory.fact_store import ConflictDetectedError, SemanticFact
 
-router = APIRouter(tags=["memory"])
+router = APIRouter()
 
 
 class UpsertFactRequest(BaseModel):
@@ -25,8 +25,8 @@ class UpsertFactRequest(BaseModel):
 
 class CreateEpisodeRequest(BaseModel):
     summary: str
-    topics: List[str] = []
-    session_ids: List[str] = []
+    topics: List[str] = Field(default_factory=list)
+    session_ids: List[str] = Field(default_factory=list)
     message_count: int = 0
     source: str = "api"
     user_id: Optional[str] = None
@@ -70,10 +70,18 @@ def _validate_scope_user(scope: str, user_id: str) -> None:
         raise HTTPException(status_code=400, detail="private scope must match user_id")
 
 
+def _validate_scope_format(scope: str) -> None:
+    """Raise HTTP 400 when *scope* is not a recognised scope format."""
+    if scope == "system" or scope.startswith("private:") or scope.startswith("family:"):
+        return
+    raise HTTPException(status_code=400, detail=f"Invalid scope format: '{scope}'")
+
+
 def _authorize(request: Request, operation: Operation, scope: str) -> None:
     actor = getattr(request.state, "actor", None)
     if actor is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    _validate_scope_format(scope)
     registry = getattr(request.app.state, "actor_registry", None)
     try:
         authorize(actor, operation, scope, registry=registry)

@@ -100,13 +100,14 @@ class SemanticFact:
     @classmethod
     def from_dict(cls, data: dict) -> "SemanticFact":
         """Reconstruct a SemanticFact from a dict."""
+        user_id = data["user_id"]
         return cls(
             fact_id=data["fact_id"],
-            user_id=data["user_id"],
+            user_id=user_id,
             key=data["key"],
             value=data["value"],
             source=data.get("source", ""),
-            scope=data.get("scope", ""),
+            scope=data.get("scope") or f"private:{user_id}",
             created_by=data.get("created_by", ""),
             created_at=data["created_at"],
             updated_at=data.get("updated_at", data["created_at"]),
@@ -132,7 +133,7 @@ class SemanticFact:
             key=key,
             value=value,
             source=source,
-            scope=scope,
+            scope=scope or f"private:{user_id}",
             created_by=created_by,
             created_at=now,
             updated_at=now,

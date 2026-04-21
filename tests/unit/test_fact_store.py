@@ -47,7 +47,7 @@ class TestSemanticFactRoundTrip:
         }
         fact = SemanticFact.from_dict(data)
         assert fact.source == ""
-        assert fact.scope == ""
+        assert fact.scope == "private:bob"
         assert fact.created_by == ""
         assert fact.notes is None
         assert fact.updated_at == data["created_at"]
