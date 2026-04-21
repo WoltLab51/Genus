@@ -43,9 +43,22 @@ def authorize(
     Raises:
         AuthorizationError: If the operation is not permitted by policy.
     """
-    op = Operation(operation)
-    scope = resource.scope if isinstance(resource, Resource) else resource
+    try:
+        op = Operation(operation)
+    except ValueError as exc:
+        allowed_operations = ", ".join(item.value for item in Operation)
+        raise AuthorizationError(
+            f"Invalid operation '{operation}'. Expected one of: {allowed_operations}"
+        ) from exc
 
+    if isinstance(resource, Resource):
+        scope = resource.scope
+    elif isinstance(resource, str):
+        scope = resource
+    else:
+        raise AuthorizationError(
+            f"Invalid resource '{resource}'. Expected a scope string or Resource"
+        )
     if op == Operation.ADMIN and actor.role != ActorRole.ADMIN:
         raise AuthorizationError(
             f"Admin operation requires ADMIN role, but actor has '{actor.role.value}'"
