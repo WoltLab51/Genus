@@ -22,6 +22,16 @@ class UpsertFactRequest(BaseModel):
     source: Optional[str] = None
 
 
+class CreateEpisodeRequest(BaseModel):
+    summary: str
+    topics: List[str] = []
+    session_ids: List[str] = []
+    message_count: int = 0
+    source: str = "api"
+    user_id: Optional[str] = None
+    scope: Optional[str] = None
+
+
 def _require_auth(request: Request) -> None:
     if not getattr(request.state, "authenticated", False):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -29,6 +39,13 @@ def _require_auth(request: Request) -> None:
 
 def _get_fact_store(request: Request):
     store = getattr(request.app.state, "fact_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Memory module not available")
+    return store
+
+
+def _get_episode_store(request: Request):
+    store = getattr(request.app.state, "episode_store", None)
     if store is None:
         raise HTTPException(status_code=503, detail="Memory module not available")
     return store
@@ -73,6 +90,21 @@ def _fact_to_payload(fact: SemanticFact) -> Dict[str, Any]:
         "created_by": fact.created_by,
         "created_at": fact.created_at,
         "updated_at": fact.updated_at,
+    }
+
+
+def _episode_to_payload(episode) -> Dict[str, Any]:
+    return {
+        "episode_id": episode.episode_id,
+        "user_id": episode.user_id,
+        "summary": episode.summary,
+        "topics": episode.topics,
+        "session_ids": episode.session_ids,
+        "message_count": episode.message_count,
+        "source": episode.source,
+        "scope": episode.scope,
+        "created_by": episode.created_by,
+        "created_at": episode.created_at,
     }
 
 
@@ -127,3 +159,49 @@ async def upsert_fact(request: Request, body: UpsertFactRequest) -> Dict[str, An
             },
         ) from exc
     return _fact_to_payload(stored)
+
+
+@router.get("/v1/memory/episodes")
+async def list_episodes(
+    request: Request,
+    user_id: Optional[str] = Query(default=None),
+    scope: Optional[str] = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=100),
+) -> List[Dict[str, Any]]:
+    _require_auth(request)
+    resolved_user_id = _resolve_user_id(request, user_id)
+    resolved_scope = _resolve_scope(scope, resolved_user_id)
+    _validate_scope_user(resolved_scope, resolved_user_id)
+    _authorize(request, Operation.READ, resolved_scope)
+
+    episode_store = _get_episode_store(request)
+    episodes = episode_store.get_recent(resolved_user_id, limit=limit, scope=resolved_scope)
+    return [_episode_to_payload(ep) for ep in episodes]
+
+
+@router.post("/v1/memory/episodes", status_code=201)
+async def create_episode(request: Request, body: CreateEpisodeRequest) -> Dict[str, Any]:
+    from genus.memory.episode_store import Episode
+
+    _require_auth(request)
+    resolved_user_id = _resolve_user_id(request, body.user_id)
+    resolved_scope = _resolve_scope(body.scope, resolved_user_id)
+    _validate_scope_user(resolved_scope, resolved_user_id)
+    _authorize(request, Operation.WRITE, resolved_scope)
+
+    actor = getattr(request.state, "actor", None)
+    created_by = actor.actor_id if actor is not None else "system"
+
+    episode_store = _get_episode_store(request)
+    episode = Episode.create(
+        user_id=resolved_user_id,
+        summary=body.summary,
+        topics=body.topics,
+        session_ids=body.session_ids,
+        message_count=body.message_count,
+        source=body.source,
+        scope=resolved_scope,
+        created_by=created_by,
+    )
+    episode_store.append(episode)
+    return _episode_to_payload(episode)
