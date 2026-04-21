@@ -113,7 +113,8 @@ class ActorRegistry:
             reader_key=reader_key,
         )
         merged_actors = dict(self._actors)
-        merged_actors.update(legacy._actors)
+        for actor_id, actor in legacy._actors.items():
+            merged_actors.setdefault(actor_id, actor)
         merged_map = dict(self._key_to_actor)
         for key, actor_id in legacy._key_to_actor.items():
             merged_map.setdefault(key, actor_id)
