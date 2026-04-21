@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from genus.api.deps import get_current_actor
 from genus.builder import BuildRequest, BuilderAgent
+from genus.identity.actor_registry import Actor
 
 router = APIRouter(prefix="/v1/builder", tags=["builder"])
 
@@ -21,8 +22,9 @@ def _ensure_builder_agent(request: Request) -> BuilderAgent:
     return agent
 
 
-def _ensure_builder_role(actor) -> None:
-    role = actor.role.api_role
+def _ensure_builder_role(actor: Actor) -> None:
+    role_obj = getattr(actor, "role", None)
+    role = role_obj.api_role if role_obj is not None else ""
     capabilities = getattr(actor, "capabilities", frozenset())
     if role == "admin" or "parent" in capabilities:
         return

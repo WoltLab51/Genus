@@ -24,6 +24,7 @@ class RepairLoop:
         request: BuildRequest,
         attempt: int,
     ) -> RepairAttempt:
+        """Repair failed code using LLM feedback and re-test the result."""
         if self._llm_router is None:
             return RepairAttempt(
                 attempt=attempt,
@@ -33,6 +34,9 @@ class RepairLoop:
                 success=False,
             )
 
+        repaired_code = code
+        success = False
+        test_output = error
         try:
             response = await self._llm_router.complete(
                 messages=[
@@ -61,18 +65,9 @@ class RepairLoop:
             )
             repaired_code = _strip_code_fences(response.content)
         except LLMProviderUnavailableError:
-            repaired_code = code
             test_output = "LLM unavailable"
-            success = False
-            return RepairAttempt(
-                attempt=attempt,
-                error=error,
-                repaired_code=repaired_code,
-                test_output=test_output,
-                success=success,
-            )
-
-        success, test_output = await self._tester.test(repaired_code, request.name)
+        else:
+            success, test_output = await self._tester.test(repaired_code, request.name)
         return RepairAttempt(
             attempt=attempt,
             error=error,

@@ -77,6 +77,8 @@ async def test_builder_agent_build_success() -> None:
     assert result.status == "success"
     assert result.registered is True
     assert result.repair_attempts == 0
+    assert "def sum_values" in (result.code or "")
+    assert agent._registry.get("sum_values") is not None
 
 
 async def test_builder_agent_triggers_repair_loop() -> None:

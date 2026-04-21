@@ -15,7 +15,10 @@ from genus.tools.registry import ToolRegistry, ToolSpec
 
 
 def _sandbox_only_handler(*_args, **_kwargs):
-    raise RuntimeError("Generated tools must be executed through the sandbox.")
+    raise RuntimeError(
+        "Generated tools cannot be called directly. "
+        "Use the sandbox runner to execute this tool safely."
+    )
 
 
 class BuilderAgent:
@@ -40,6 +43,7 @@ class BuilderAgent:
         self._repairs: Dict[str, List[RepairAttempt]] = {}
 
     async def build(self, request: BuildRequest) -> BuildResult:
+        """Run generation, sandbox testing, optional repair loop, and registration."""
         request_id = str(uuid4())
         result = BuildResult(
             request_id=request_id,
@@ -111,14 +115,17 @@ class BuilderAgent:
         return result
 
     async def get_status(self, request_id: str) -> BuildResult | None:
+        """Return the current or final build status for a request ID."""
         return self._results.get(request_id)
 
     async def list_results(self, page: int = 1, per_page: int = 20) -> List[BuildResult]:
+        """Return paginated build results sorted by creation time descending."""
         values = sorted(self._results.values(), key=lambda item: item.created_at, reverse=True)
         start = (page - 1) * per_page
-        return values[start:start + per_page]
+        return values[start:(start + per_page)]
 
     async def delete_result(self, request_id: str) -> bool:
+        """Delete a stored build result and return whether it existed."""
         removed = self._results.pop(request_id, None)
         self._repairs.pop(request_id, None)
         if removed is None:

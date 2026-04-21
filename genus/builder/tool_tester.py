@@ -16,12 +16,13 @@ from genus.workspace.workspace import RunWorkspace
 class ToolTester:
     """Writes generated code temporarily and tests it inside the sandbox."""
 
-    def __init__(self, timeout_s: float = 30.0) -> None:
+    def __init__(self, timeout_s: float = 30.0, generated_dir: Path | None = None) -> None:
         self._timeout_s = timeout_s
         self._repo_root = Path(__file__).resolve().parents[2]
-        self._generated_dir = self._repo_root / "genus" / "agents" / "generated"
+        self._generated_dir = generated_dir or (self._repo_root / "genus" / "agents" / "generated")
 
     async def test(self, code: str, name: str) -> tuple[bool, str]:
+        """Test generated Python code in an isolated sandbox and return status/output."""
         token = uuid4().hex
         module_name = f"{name}_{token}"
         module_filename = f"{module_name}.py"
@@ -77,7 +78,8 @@ class ToolTester:
                     cwd=".",
                 )
                 result = await runner.run(command, timeout_s=self._timeout_s)
-                output = "\n".join(filter(None, [result.stdout.strip(), result.stderr.strip()]))
+                parts = [s for s in [result.stdout.strip(), result.stderr.strip()] if s]
+                output = "\n".join(parts)
                 return result.exit_code == 0, output
         finally:
             repo_module.unlink(missing_ok=True)

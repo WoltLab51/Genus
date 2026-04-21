@@ -27,6 +27,7 @@ class ToolGenerator:
         self._llm_router = llm_router
 
     async def generate(self, request: BuildRequest) -> str:
+        """Generate Python tool code for the given build request."""
         if self._llm_router is None:
             raise LLMProviderUnavailableError("LLM unavailable")
 

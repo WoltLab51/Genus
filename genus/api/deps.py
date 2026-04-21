@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
+from genus.identity.actor_registry import Actor
 from genus.memory.store_jsonl import JsonlRunStore
 
 
@@ -77,7 +78,7 @@ def get_kill_switch(request: Request) -> Optional[object]:
     return getattr(request.app.state, "kill_switch", None)
 
 
-def get_current_actor(request: Request):
+def get_current_actor(request: Request) -> Actor:
     """Return the authenticated actor from request state."""
     if not getattr(request.state, "authenticated", False):
         raise HTTPException(status_code=401, detail="Unauthorized")
