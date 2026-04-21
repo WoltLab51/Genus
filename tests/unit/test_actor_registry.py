@@ -57,3 +57,26 @@ api_keys: []
 
     with pytest.raises(ActorConfigError, match="references unknown actor"):
         load_actor_config()
+
+
+def test_registry_validates_unknown_actor_family_reference(tmp_path, monkeypatch):
+    config_path = tmp_path / "genus.config.yaml"
+    config_path.write_text(
+        """
+actors:
+  - actor_id: papa
+    type: human
+    role: OPERATOR
+    families: [family-typo]
+families:
+  - family_id: family-woltlab
+    name: WoltLab
+    members: [papa]
+api_keys: []
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GENUS_CONFIG_PATH", str(config_path))
+
+    with pytest.raises(ActorConfigError, match="references unknown family"):
+        load_actor_config()

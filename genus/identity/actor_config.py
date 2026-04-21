@@ -43,6 +43,17 @@ class ActorConfigDocument(BaseModel):
     @model_validator(mode="after")
     def _validate_references(self) -> "ActorConfigDocument":
         actor_ids = {actor.actor_id for actor in self.actors}
+        family_ids = {family.family_id for family in self.families}
+
+        if family_ids:
+            for actor in self.actors:
+                for family_id in actor.families:
+                    if family_id not in family_ids:
+                        raise ValueError(
+                            f"Actor '{actor.actor_id}' references unknown family "
+                            f"'{family_id}'"
+                        )
+
         for family in self.families:
             for member in family.members:
                 if member not in actor_ids:
