@@ -288,28 +288,30 @@ async def search_memory(
 
     if body.include_facts:
         fact_store = getattr(request.app.state, "fact_store", None)
-        if fact_store is not None:
-            all_facts = fact_store.get_all(resolved_user_id, scope=resolved_scope)
-            lower_kws = [kw.lower() for kw in unique_keywords]
-            for fact in all_facts.values():
-                searchable = f"{fact.key} {fact.value} {fact.notes or ''}".lower()
-                if any(kw in searchable for kw in lower_kws):
-                    facts_result.append(_fact_to_payload(fact))
-                    if len(facts_result) >= body.limit:
-                        break
+        if fact_store is None:
+            raise HTTPException(status_code=503, detail="Memory module not available")
+        all_facts = fact_store.get_all(resolved_user_id, scope=resolved_scope)
+        lower_kws = [kw.lower() for kw in unique_keywords]
+        for fact in all_facts.values():
+            searchable = f"{fact.key} {fact.value} {fact.notes or ''}".lower()
+            if any(kw in searchable for kw in lower_kws):
+                facts_result.append(_fact_to_payload(fact))
+                if len(facts_result) >= body.limit:
+                    break
 
     if body.include_episodes:
         episode_store = getattr(request.app.state, "episode_store", None)
-        if episode_store is not None:
-            episodes_result = [
-                _episode_to_payload(ep)
-                for ep in episode_store.search(
-                    resolved_user_id,
-                    unique_keywords,
-                    limit=body.limit,
-                    scope=resolved_scope,
-                )
-            ]
+        if episode_store is None:
+            raise HTTPException(status_code=503, detail="Memory module not available")
+        episodes_result = [
+            _episode_to_payload(ep)
+            for ep in episode_store.search(
+                resolved_user_id,
+                unique_keywords,
+                limit=body.limit,
+                scope=resolved_scope,
+            )
+        ]
 
     return {
         "facts": facts_result,

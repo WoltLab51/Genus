@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 
 @dataclass
@@ -77,7 +77,7 @@ class FunctionalAgent(ABC):
 
     Subclasses **may** override:
 
-    - ``allowed_tools``  — whitelist of tool names the agent may use
+    - ``allowed_tools``  — whitelist of tool names the agent may use (immutable class-level tuple)
     - ``required_scope`` — minimum scope needed to invoke the agent
     - ``can_handle()``   — intent-based filtering
     """
@@ -85,7 +85,7 @@ class FunctionalAgent(ABC):
     agent_id: str
     role: str
     description: str
-    allowed_tools: List[str] = []
+    allowed_tools: ClassVar[Tuple[str, ...]] = ()
     required_scope: str = "system"
 
     @abstractmethod

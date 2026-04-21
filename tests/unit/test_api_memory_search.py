@@ -5,7 +5,8 @@ Tests cover:
 - Keyword search across episodes
 - Combined search (facts + episodes)
 - include_facts / include_episodes flags
-- Auth guards (401 / 403)
+- Auth guards (401 unauthenticated, 403 insufficient scope)
+- 503 when memory stores are not configured
 - Missing keyword / query returns 422
 - Query string tokenisation
 """
@@ -22,10 +23,49 @@ TEST_KEY = "test-search-key"
 AUTH = {"Authorization": f"Bearer {TEST_KEY}"}
 
 
-def _make_client(tmp_path, *, seed_facts=True, seed_episodes=True):
-    """Create a TestClient with seeded fact and episode stores."""
-    app = create_app(api_key=TEST_KEY)
+def _configure_actor_registry(monkeypatch, tmp_path) -> None:
+    """Set up an actor registry with an OPERATOR and a READER actor."""
+    config_path = tmp_path / "genus.config.yaml"
+    config_path.write_text(
+        """
+actors:
+  - actor_id: phone-operator
+    type: device
+    role: OPERATOR
+    user_id: testuser
+    families: [family-1]
+    display_name: Operator Phone
+  - actor_id: phone-reader
+    type: device
+    role: READER
+    user_id: child
+    families: []
+    display_name: Child Phone
+families:
+  - family_id: family-1
+    name: Family 1
+    members: [phone-operator]
+api_keys:
+  - key_env: GENUS_KEY_OPERATOR
+    actor_id: phone-operator
+  - key_env: GENUS_KEY_READER
+    actor_id: phone-reader
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GENUS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("GENUS_KEY_OPERATOR", "operator-secret")
+    monkeypatch.setenv("GENUS_KEY_READER", "reader-secret")
 
+
+def _make_client(tmp_path, *, seed_facts=True, seed_episodes=True):
+    """Create a TestClient with seeded fact and episode stores.
+
+    When both *seed_facts* and *seed_episodes* are ``False`` the stores are
+    still attached (empty), so the endpoint behaves identically to a normal
+    call that returns no matches.
+    """
+    app = create_app(api_key=TEST_KEY)
     fact_store = SemanticFactStore(base_dir=str(tmp_path / "facts"))
     if seed_facts:
         fact_store.upsert(
@@ -94,6 +134,24 @@ class TestSearchAuth:
                 json={"query": "python", "user_id": "testuser"},
             )
         assert resp.status_code == 401
+
+    def test_reader_cannot_access_system_scope_returns_403(self, tmp_path, monkeypatch):
+        """A READER actor without ADMIN role must be denied access to system scope."""
+        _configure_actor_registry(monkeypatch, tmp_path)
+        app = create_app()
+        app.state.fact_store = SemanticFactStore(base_dir=str(tmp_path / "facts"))
+        app.state.episode_store = EpisodeStore(base_dir=str(tmp_path / "episodes"))
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/v1/memory/search",
+                json={
+                    "query": "python",
+                    "user_id": "child",
+                    "scope": "system",
+                },
+                headers={"Authorization": "Bearer reader-secret"},
+            )
+        assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +334,77 @@ class TestSearchResponseStructure:
             )
         data = resp.json()
         assert data["keywords"].count("python") == 1
+
+
+# ---------------------------------------------------------------------------
+# 503 — memory stores not configured
+# ---------------------------------------------------------------------------
+
+
+class TestSearchStoreNotConfigured:
+    def test_returns_503_when_fact_store_missing_and_include_facts(self, tmp_path):
+        """When fact_store is not attached and include_facts=True → 503."""
+        app = create_app(api_key=TEST_KEY)
+        # no app.state.fact_store set
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/v1/memory/search",
+                json={"query": "python", "user_id": "testuser"},
+                headers=AUTH,
+            )
+        assert resp.status_code == 503
+
+    def test_returns_503_when_episode_store_missing_and_include_episodes(self, tmp_path):
+        """When episode_store is not attached and include_episodes=True → 503."""
+        app = create_app(api_key=TEST_KEY)
+        # attach fact_store but not episode_store
+        app.state.fact_store = SemanticFactStore(base_dir=str(tmp_path / "facts"))
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/v1/memory/search",
+                json={
+                    "query": "python",
+                    "user_id": "testuser",
+                    "include_facts": False,
+                    "include_episodes": True,
+                },
+                headers=AUTH,
+            )
+        assert resp.status_code == 503
+
+    def test_returns_200_when_both_stores_disabled_without_stores(self, tmp_path):
+        """When both flags are False, missing stores do not raise 503."""
+        app = create_app(api_key=TEST_KEY)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/v1/memory/search",
+                json={
+                    "query": "python",
+                    "user_id": "testuser",
+                    "include_facts": False,
+                    "include_episodes": False,
+                },
+                headers=AUTH,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["facts"] == []
+        assert data["episodes"] == []
+
+    def test_returns_200_when_both_stores_disabled_with_stores(self, tmp_path):
+        """When both flags are False, even attached stores yield empty results."""
+        with _make_client(tmp_path) as client:
+            resp = client.post(
+                "/v1/memory/search",
+                json={
+                    "query": "python",
+                    "user_id": "testuser",
+                    "include_facts": False,
+                    "include_episodes": False,
+                },
+                headers=AUTH,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["facts"] == []
+        assert data["episodes"] == []

@@ -4,7 +4,7 @@ Tests cover:
 - GET /v1/agents/ — list all agents
 - GET /v1/agents/{agent_id}/status — single agent status
 - POST /v1/agents/{agent_id}/invoke — invoke agent
-- 401 / 403 auth guards
+- 401 auth guard (unauthenticated requests)
 - 404 for unknown agent_id
 - 503 when registry is not configured
 """

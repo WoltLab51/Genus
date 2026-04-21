@@ -199,7 +199,7 @@ class TestFamilyAgent:
         agent = FamilyAgent()
         s = agent.status()
         assert s["agent_id"] == "family"
-        assert s["required_scope"] == "family"
+        assert s["required_scope"] == "system"
 
     async def test_handle_returns_response(self):
         agent = FamilyAgent()

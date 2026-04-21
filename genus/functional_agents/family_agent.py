@@ -55,7 +55,7 @@ class FamilyAgent(FunctionalAgent):
         "notification",
         "reminder",
     ]
-    required_scope = "family"
+    required_scope = "system"
 
     async def handle(self, intent: str, context: AgentContext) -> AgentResponse:
         """Handle a family-management intent.
