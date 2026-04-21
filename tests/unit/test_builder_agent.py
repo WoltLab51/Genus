@@ -38,6 +38,22 @@ class _MockRepairLoop:
         return repair.model_copy(update={"attempt": attempt})
 
 
+class _FailingTester:
+    async def test(self, _code: str, _name: str) -> tuple[bool, str]:
+        raise RuntimeError("sandbox unavailable")
+
+
+class _FailingRepairLoop:
+    async def run(
+        self,
+        _code: str,
+        _error: str,
+        _request: BuildRequest,
+        _attempt: int,
+    ) -> RepairAttempt:
+        raise RuntimeError("repair crashed")
+
+
 def test_build_request_validation() -> None:
     BuildRequest(name="my_tool", description="desc", signature="def my_tool(x: int) -> int")
     try:
@@ -141,3 +157,34 @@ async def test_builder_agent_failed_after_max_attempts() -> None:
     result = await agent.build(request)
     assert result.status == "failed"
     assert result.repair_attempts == 2
+
+
+async def test_builder_agent_handles_tester_exception() -> None:
+    request = BuildRequest(
+        name="sum_values",
+        description="add numbers",
+        signature="def sum_values(a: int, b: int) -> int",
+    )
+    generator = _MockGenerator("def sum_values(a: int, b: int) -> int:\n    return a + b\n")
+    agent = BuilderAgent(generator=generator, tester=_FailingTester(), repair_loop=_MockRepairLoop([]))
+
+    result = await agent.build(request)
+    assert result.status == "failed"
+    assert result.error == "sandbox unavailable"
+    assert result.test_output == "sandbox unavailable"
+
+
+async def test_builder_agent_handles_repair_exception() -> None:
+    request = BuildRequest(
+        name="sum_values",
+        description="add numbers",
+        signature="def sum_values(a: int, b: int) -> int",
+    )
+    generator = _MockGenerator("def sum_values(a: int, b: int) -> int:\n    return a + b\n")
+    tester = _MockTester([(False, "initial fail")])
+    agent = BuilderAgent(generator=generator, tester=tester, repair_loop=_FailingRepairLoop())
+
+    result = await agent.build(request)
+    assert result.status == "failed"
+    assert result.error == "repair crashed"
+    assert result.repair_attempts == 0

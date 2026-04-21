@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Dict, List
 from uuid import uuid4
 
@@ -41,6 +42,7 @@ class BuilderAgent:
         self._repair_loop = repair_loop or RepairLoop(llm_router, self._tester)
         self._results: Dict[str, BuildResult] = {}
         self._repairs: Dict[str, List[RepairAttempt]] = {}
+        self._state_lock = asyncio.Lock()
 
     async def build(self, request: BuildRequest) -> BuildResult:
         """Run generation, sandbox testing, optional repair loop, and registration."""
@@ -55,40 +57,62 @@ class BuilderAgent:
             registered=False,
             error=None,
         )
-        self._results[request_id] = result
+        async with self._state_lock:
+            self._results[request_id] = result
 
         try:
             code = await self._generator.generate(request)
         except LLMProviderUnavailableError:
             result.status = "failed"
             result.error = "LLM unavailable"
-            self._store_result(result)
+            await self._store_result(result)
             return result
         except Exception as exc:  # noqa: BLE001
             result.status = "failed"
             result.error = str(exc)
-            self._store_result(result)
+            await self._store_result(result)
             return result
 
-        success, output = await self._tester.test(code, request.name)
+        try:
+            success, output = await self._tester.test(code, request.name)
+        except Exception as exc:  # noqa: BLE001
+            result.status = "failed"
+            result.code = code
+            result.test_output = str(exc)
+            result.error = str(exc)
+            await self._store_result(result)
+            return result
+
         current_code = code
         repairs: List[RepairAttempt] = []
 
         attempt = 0
         while not success and attempt < request.max_repair_attempts:
             attempt += 1
-            repair = await self._repair_loop.run(
-                current_code,
-                output,
-                request,
-                attempt,
-            )
+            try:
+                repair = await self._repair_loop.run(
+                    current_code,
+                    output,
+                    request,
+                    attempt,
+                )
+            except Exception as exc:  # noqa: BLE001
+                async with self._state_lock:
+                    self._repairs[request_id] = repairs
+                result.repair_attempts = len(repairs)
+                result.code = current_code
+                result.test_output = str(exc)
+                result.status = "failed"
+                result.error = str(exc)
+                await self._store_result(result)
+                return result
             repairs.append(repair)
             current_code = repair.repaired_code
             success = repair.success
             output = repair.test_output
 
-        self._repairs[request_id] = repairs
+        async with self._state_lock:
+            self._repairs[request_id] = repairs
         result.repair_attempts = len(repairs)
         result.code = current_code
         result.test_output = output
@@ -111,28 +135,33 @@ class BuilderAgent:
             result.status = "failed"
             result.error = output
 
-        self._store_result(result)
+        await self._store_result(result)
         return result
 
     async def get_status(self, request_id: str) -> BuildResult | None:
         """Return the current or final build status for a request ID."""
-        return self._results.get(request_id)
+        async with self._state_lock:
+            return self._results.get(request_id)
 
     async def list_results(self, page: int = 1, per_page: int = 20) -> List[BuildResult]:
         """Return paginated build results sorted by creation time descending."""
-        values = sorted(self._results.values(), key=lambda item: item.created_at, reverse=True)
+        async with self._state_lock:
+            snapshot = list(self._results.values())
+        values = sorted(snapshot, key=lambda item: item.created_at, reverse=True)
         start = (page - 1) * per_page
         return values[start:(start + per_page)]
 
     async def delete_result(self, request_id: str) -> bool:
         """Delete a stored build result and return whether it existed."""
-        removed = self._results.pop(request_id, None)
-        self._repairs.pop(request_id, None)
+        async with self._state_lock:
+            removed = self._results.pop(request_id, None)
+            self._repairs.pop(request_id, None)
         if removed is None:
             return False
         self._memory.delete(request_id)
         return True
 
-    def _store_result(self, result: BuildResult) -> None:
-        self._results[result.request_id] = result
+    async def _store_result(self, result: BuildResult) -> None:
+        async with self._state_lock:
+            self._results[result.request_id] = result
         self._memory.record_build_result(result)
