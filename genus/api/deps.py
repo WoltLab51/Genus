@@ -77,6 +77,16 @@ def get_kill_switch(request: Request) -> Optional[object]:
     return getattr(request.app.state, "kill_switch", None)
 
 
+def get_current_actor(request: Request):
+    """Return the authenticated actor from request state."""
+    if not getattr(request.state, "authenticated", False):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    actor = getattr(request.state, "actor", None)
+    if actor is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return actor
+
+
 def assert_kill_switch_consistent(app) -> None:
     """Assert that app.state.kill_switch and MessageBus.kill_switch are the same instance.
 
