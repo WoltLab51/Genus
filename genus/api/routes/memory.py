@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from genus.identity.authorization import AuthorizationError, Operation, authorize
+from genus.memory.episode_store import Episode
 from genus.memory.fact_store import ConflictDetectedError, SemanticFact
 
 router = APIRouter(tags=["memory"])
@@ -181,8 +182,6 @@ async def list_episodes(
 
 @router.post("/v1/memory/episodes", status_code=201)
 async def create_episode(request: Request, body: CreateEpisodeRequest) -> Dict[str, Any]:
-    from genus.memory.episode_store import Episode
-
     _require_auth(request)
     resolved_user_id = _resolve_user_id(request, body.user_id)
     resolved_scope = _resolve_scope(body.scope, resolved_user_id)
