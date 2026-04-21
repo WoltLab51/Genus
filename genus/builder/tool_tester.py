@@ -13,7 +13,7 @@ from genus.workspace.workspace import RunWorkspace
 
 
 class ToolTester:
-    """Writes generated code temporarily and tests it inside the sandbox."""
+    """Tests generated code only inside temporary sandbox workspaces."""
 
     def __init__(self, timeout_s: float = 30.0) -> None:
         self._timeout_s = timeout_s

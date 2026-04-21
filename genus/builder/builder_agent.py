@@ -113,7 +113,7 @@ class BuilderAgent:
 
         async with self._state_lock:
             self._repairs[request_id] = repairs
-        result.repair_attempts = len(repairs)
+            result.repair_attempts = len(repairs)
         result.code = current_code
         result.test_output = output
 
