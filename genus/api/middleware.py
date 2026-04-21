@@ -14,11 +14,13 @@ Role model:
 """
 
 import json
-from typing import Dict, Set
+from typing import Optional, Set
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from genus.identity.actor_registry import ActorRegistry, build_actor_registry
 
 EXEMPT_PATHS: Set[str] = {"/health", "/docs", "/openapi.json", "/", "/favicon.ico"}
 
@@ -37,17 +39,14 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         admin_key: str = "",
         operator_key: str = "",
         reader_key: str = "",
+        actor_registry: Optional[ActorRegistry] = None,
     ) -> None:
         super().__init__(app)
-        # Build lookup table: token → role (last write wins if keys overlap)
-        self._key_to_role: Dict[str, str] = {}
-        if reader_key:
-            self._key_to_role[reader_key] = "reader"
-        if operator_key:
-            self._key_to_role[operator_key] = "operator"
-        # admin_key always overwrites — admin trumps any other role for the same token
-        if admin_key:
-            self._key_to_role[admin_key] = "admin"
+        self._registry = actor_registry or build_actor_registry(
+            admin_key=admin_key,
+            operator_key=operator_key,
+            reader_key=reader_key,
+        )
 
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.url.path in EXEMPT_PATHS or request.url.path.startswith("/static/"):
@@ -58,12 +57,13 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return _unauthorized("Missing or malformed Authorization header")
 
         token = auth_header[len("Bearer "):]
-        role = self._key_to_role.get(token)
-        if role is None:
+        actor = self._registry.lookup_actor(token)
+        if actor is None:
             return _unauthorized("Invalid API key")
 
         request.state.authenticated = True
-        request.state.role = role
+        request.state.role = actor.role.api_role
+        request.state.actor = actor
         return await call_next(request)
 
 

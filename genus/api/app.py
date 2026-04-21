@@ -22,6 +22,7 @@ from genus.api.routers import kill_switch as kill_switch_router
 from genus.api.routes import chat as chat_router
 from genus.api.routes import chat_rest as chat_rest_router
 from genus.api.routes import identity as identity_router
+from genus.identity.actor_registry import build_actor_registry
 
 
 def create_app(
@@ -70,6 +71,12 @@ def create_app(
         _operator_key = operator_key
         _reader_key = reader_key
 
+    actor_registry = build_actor_registry(
+        admin_key=_admin_key,
+        operator_key=_operator_key,
+        reader_key=_reader_key,
+    )
+
     app = FastAPI(
         title="GENUS API",
         version=API_VERSION,
@@ -81,16 +88,15 @@ def create_app(
     app.state.message_bus = message_bus
     app.state.kill_switch = kill_switch
     app.state.run_store = run_store
+    app.state.actor_registry = actor_registry
     # Set of all valid API keys for inline WS auth
-    app.state.api_keys = {k for k in [_admin_key, _operator_key, _reader_key] if k}
+    app.state.api_keys = actor_registry.api_keys
 
     # Middleware (order matters: errors outermost)
     app.add_middleware(ErrorHandlingMiddleware)
     app.add_middleware(
         ApiKeyMiddleware,
-        admin_key=_admin_key,
-        operator_key=_operator_key,
-        reader_key=_reader_key,
+        actor_registry=actor_registry,
     )
 
     # Routers

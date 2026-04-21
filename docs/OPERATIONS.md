@@ -62,12 +62,36 @@ uvicorn genus.api:create_app --factory --host 0.0.0.0 --port 8000
 | `GENUS_GROUPS_DIR` | `var/groups/` | Gruppen-Dateien (JSON pro Gruppe) (Phase 14) |
 | `GENUS_VAULT_DIR` | `var/vault/` | Vertrauliche Daten (PrivacyVault) (Phase 14) |
 | `GENUS_DEFAULT_GROUP_NAME` | `Meine Familie` | Name der Standard-Familiengruppe (Phase 14) |
+| `GENUS_CONFIG_PATH` | — | Optionaler Pfad zu `genus.config.yaml` für Actor/Family/API-Key-Mapping |
 ### Beispiel: Docker / systemd
 
 ```bash
 export API_KEY="mein-geheimes-schluessel-mit-mind-32-zeichen"
 export GENUS_EVENTSTORE_DIR="/var/lib/genus/events"
 export GENUS_ENV="production"
+```
+
+### Actor-Identity Konfiguration (`genus.config.yaml`)
+
+```yaml
+actors:
+  - actor_id: papa-phone
+    type: device
+    role: OPERATOR
+    families: [family-woltlab]
+families:
+  - family_id: family-woltlab
+    name: WoltLab Familie
+    members: [papa-phone]
+api_keys:
+  - key_env: GENUS_KEY_PAPA_PHONE
+    actor_id: papa-phone
+```
+
+```bash
+export GENUS_KEY_PAPA_PHONE="super-secret-token"
+# optional, wenn Datei nicht im Projekt-Root liegt:
+export GENUS_CONFIG_PATH="/opt/genus/genus.config.yaml"
 ```
 
 ### Konfiguration im Code

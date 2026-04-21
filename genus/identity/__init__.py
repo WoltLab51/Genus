@@ -21,6 +21,8 @@ from genus.identity.profile_store import ProfileStore
 from genus.identity.group_store import GroupStore
 from genus.identity.permission_engine import PermissionEngine
 from genus.identity.privacy_vault import PrivacyVault
+from genus.identity.actor_registry import Actor, ActorRegistry, ActorRole, ActorType
+from genus.identity.authorization import AuthorizationError, Operation, Resource, authorize
 
 __all__ = [
     "PrivacyLevel",
@@ -37,4 +39,12 @@ __all__ = [
     "GroupStore",
     "PermissionEngine",
     "PrivacyVault",
+    "Actor",
+    "ActorType",
+    "ActorRole",
+    "ActorRegistry",
+    "Operation",
+    "Resource",
+    "AuthorizationError",
+    "authorize",
 ]

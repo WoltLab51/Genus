@@ -111,9 +111,10 @@ def _require_admin_or_superadmin(request: Request) -> None:
 def _get_user_id_from_request(request: Request) -> str:
     """Map the authenticated token to a user_id.
 
-    Master key → ronny_wolter.
-    Other keys → look up from profile store by api_key field (future).
-    For now: admin role → ronny_wolter; others → "anonymous".
+    Resolution order:
+    1) Master key → ``ronny_wolter``
+    2) Authenticated actor with ``user_id`` on ``request.state.actor`` → that ``user_id``
+    3) Fallback placeholder derived from role: ``__role_<role>``
     """
     import os
     master_key = os.environ.get("GENUS_MASTER_KEY", "")
@@ -121,9 +122,25 @@ def _get_user_id_from_request(request: Request) -> str:
     token = auth_header[len("Bearer "):] if auth_header.startswith("Bearer ") else ""
     if master_key and token == master_key:
         return "ronny_wolter"
+    actor = getattr(request.state, "actor", None)
+    if actor is not None and actor.user_id:
+        return actor.user_id
     # Default: use the role as a hint (placeholder until user-key mapping is built)
     role = getattr(request.state, "role", "guest")
     return f"__role_{role}"
+
+
+@router.get("/v1/identity/me")
+async def get_actor_identity(request: Request) -> Dict[str, Any]:
+    """Return actor identity resolved from API key authentication."""
+    _require_auth(request)
+    actor = getattr(request.state, "actor", None)
+    if actor is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Internal error: actor identity not set in request context",
+        )
+    return actor.as_identity_payload()
 
 
 # ---------------------------------------------------------------------------
