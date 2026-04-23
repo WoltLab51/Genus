@@ -37,16 +37,22 @@ class TestReportArtifact:
     Attributes:
         passed:        Number of passing tests.
         failed:        Number of failing tests.
+        errors:        Number of test errors (e.g. collection errors).
         duration_s:    Total test duration in seconds.
         summary:       Human-readable summary line.
+        status:        Overall status: "passed", "failed", "error", or "no_tests".
         failing_tests: List of test identifiers that failed.
+        failures:      Detailed failure records, each a dict with "test" and "message".
     """
 
     passed: int = 0
     failed: int = 0
+    errors: int = 0
     duration_s: float = 0.0
     summary: str = ""
+    status: str = "passed"
     failing_tests: List[str] = field(default_factory=list)
+    failures: List[dict] = field(default_factory=list)
 
 
 @dataclass

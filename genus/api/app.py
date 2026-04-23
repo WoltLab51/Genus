@@ -23,6 +23,7 @@ from genus.api.routes import agents as agents_router
 from genus.api.routes import chat as chat_router
 from genus.api.routes import chat_rest as chat_rest_router
 from genus.api.routes import builder as builder_router
+from genus.api.routes import devloop as devloop_router
 from genus.api.routes import identity as identity_router
 from genus.api.routes import memory as memory_router
 from genus.identity.actor_registry import build_actor_registry
@@ -110,6 +111,7 @@ def create_app(
     app.include_router(chat_router.router, tags=["chat"])
     app.include_router(chat_rest_router.router, tags=["chat"])
     app.include_router(builder_router.router, tags=["builder"])
+    app.include_router(devloop_router.router, tags=["devloop"])
     app.include_router(identity_router.router, tags=["identity"])
     app.include_router(memory_router.router, tags=["memory"])
     app.include_router(agents_router.router, tags=["agents"])
