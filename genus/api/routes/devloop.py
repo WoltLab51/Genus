@@ -6,6 +6,7 @@ Requires operator-level authentication and an active kill-switch check.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import List, Optional
 
@@ -21,6 +22,8 @@ from genus.dev.agents.tester_agent import TesterAgent
 from genus.dev.devloop_orchestrator import DevLoopOrchestrator
 from genus.dev.runtime import DevResponseTimeoutError
 from genus.memory.run_journal import RunJournal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/devloop", tags=["devloop"])
 
@@ -94,8 +97,9 @@ async def run_devloop(body: DevloopRunRequest, request: Request) -> DevloopRunRe
     try:
         run_store = get_run_store(request)
         journal = RunJournal(run_id, run_store)
-    except Exception:
-        # No store available — create an in-memory fallback store
+    except Exception as exc:  # noqa: BLE001
+        # No persistent store available — use a transient in-memory store.
+        logger.warning("run_store unavailable for devloop run %s: %s", run_id, exc)
         from genus.memory.store_jsonl import JsonlRunStore
         journal = RunJournal(run_id, JsonlRunStore())
 
@@ -112,6 +116,8 @@ async def run_devloop(body: DevloopRunRequest, request: Request) -> DevloopRunRe
             run_id=run_id,
             status="completed",
             message="Dev loop completed successfully.",
+            # Phases reflect the fixed DevLoopOrchestrator sequence; the
+            # orchestrator does not currently return per-run phase tracking.
             phases=["plan", "implement", "test", "review"],
         )
     except DevResponseTimeoutError as exc:
