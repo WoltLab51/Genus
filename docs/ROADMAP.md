@@ -1,7 +1,7 @@
 # GENUS — Roadmap
 
 > **Sprache:** Deutsch
-> **Stand:** 2026-04-11
+> **Stand:** 2026-04-23
 > **Version:** GENUS-2.0
 
 ---
@@ -16,6 +16,13 @@ Kein Framework. Kein Chatbot. Ein lebendes, lernendes System.
 ---
 
 ## Abgeschlossen ✅
+
+### Phase B — Echter TesterAgent ✅
+TesterAgent ruft pytest wirklich auf — in der Sandbox, mit echtem Output.
+Der DevLoop schließt sich vollständig: Plan → Build → Test → Review.
+`/v1/devloop/run` Endpoint für direkte API-Trigger.
+
+*Liefert: TesterAgent mit subprocess-pytest, Ergebnis-Parsing, Fehler-Feedback an BuilderAgent, `/v1/devloop/run` API.*
 
 ### Phase 13c — Kontext-Verdrahtung
 GENUS weiß wer spricht, wo die Person ist und was gerade situativ los ist.
@@ -100,12 +107,6 @@ EpisodeStore komprimiert Gespräche nachtweise, SemanticFactStore verhindert sti
 ---
 
 ## Geplant 🔜
-
-### Phase B — Echter TesterAgent
-TesterAgent ruft pytest wirklich auf — in der Sandbox, mit echtem Output.
-Der DevLoop schließt sich vollständig: Plan → Build → Test → Review.
-
-*Liefert: TesterAgent mit subprocess-pytest, Ergebnis-Parsing, Fehler-Feedback an BuilderAgent.*
 
 ### Phase 12 — WebSocket + API-Streaming
 Kein Polling mehr. Live-Status von laufenden Runs direkt im Browser / auf dem Handy.
