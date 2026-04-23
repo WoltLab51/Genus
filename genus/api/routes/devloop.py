@@ -37,8 +37,17 @@ class DevloopRunRequest(BaseModel):
     """Request body for POST /v1/devloop/run."""
 
     goal: str = Field(..., min_length=1, description="Goal / task description for the dev loop.")
-    run_id: Optional[str] = Field(None, description="Optional custom run ID; generated if omitted.")
-    timeout_s: float = Field(120.0, description="Maximum run duration in seconds.")
+    run_id: Optional[str] = Field(
+        None,
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+        description="Optional custom run ID (alphanumeric, hyphens, underscores, 1–128 chars); generated if omitted.",
+    )
+    timeout_s: float = Field(
+        120.0,
+        gt=0,
+        le=3600.0,
+        description="Maximum run duration in seconds.",
+    )
 
 
 class DevloopRunResponse(BaseModel):
@@ -81,7 +90,7 @@ async def run_devloop(body: DevloopRunRequest, request: Request) -> DevloopRunRe
     run_id = body.run_id or str(uuid.uuid4())
 
     # --- In-process MessageBus (no Redis for this sync endpoint) ---
-    bus = MessageBus()
+    bus = MessageBus(kill_switch=kill_switch)
 
     # --- Placeholder agents (no workspace / no LLM required) ---
     planner = PlannerAgent(bus, "devloop-api:planner")
@@ -93,15 +102,9 @@ async def run_devloop(body: DevloopRunRequest, request: Request) -> DevloopRunRe
     for agent in agents:
         agent.start()
 
-    # --- RunJournal (graceful fallback when no store configured) ---
-    try:
-        run_store = get_run_store(request)
-        journal = RunJournal(run_id, run_store)
-    except Exception as exc:  # noqa: BLE001
-        # No persistent store available — use a transient in-memory store.
-        logger.warning("run_store unavailable for devloop run %s: %s", run_id, exc)
-        from genus.memory.store_jsonl import JsonlRunStore
-        journal = RunJournal(run_id, JsonlRunStore())
+    # --- RunJournal (use configured store, or the default provided by get_run_store) ---
+    run_store = get_run_store(request)
+    journal = RunJournal(run_id, run_store)
 
     orchestrator = DevLoopOrchestrator(
         bus,
@@ -128,12 +131,11 @@ async def run_devloop(body: DevloopRunRequest, request: Request) -> DevloopRunRe
             phases=[],
         )
     except Exception as exc:
-        return DevloopRunResponse(
-            run_id=run_id,
-            status="failed",
-            message=f"Dev loop failed: {exc}",
-            phases=[],
-        )
+        logger.exception("Unexpected devloop failure for run %s", run_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Dev loop failed due to an internal server error.",
+        ) from exc
     finally:
         for agent in agents:
             try:

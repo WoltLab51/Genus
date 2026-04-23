@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from genus.api.app import create_app
@@ -215,3 +214,86 @@ class TestDevloopRunMissingGoal:
                 headers=OPERATOR_AUTH,
             )
         assert resp.status_code == 422
+
+
+class TestDevloopRunInvalidTimeout:
+    def test_zero_timeout_returns_422(self):
+        """timeout_s=0 is rejected with 422 (must be > 0)."""
+        with _make_client() as client:
+            resp = client.post(
+                "/v1/devloop/run",
+                json={**VALID_BODY, "timeout_s": 0},
+                headers=OPERATOR_AUTH,
+            )
+        assert resp.status_code == 422
+
+    def test_negative_timeout_returns_422(self):
+        """Negative timeout_s is rejected with 422."""
+        with _make_client() as client:
+            resp = client.post(
+                "/v1/devloop/run",
+                json={**VALID_BODY, "timeout_s": -1.0},
+                headers=OPERATOR_AUTH,
+            )
+        assert resp.status_code == 422
+
+    def test_timeout_exceeding_upper_bound_returns_422(self):
+        """timeout_s > 3600 is rejected with 422."""
+        with _make_client() as client:
+            resp = client.post(
+                "/v1/devloop/run",
+                json={**VALID_BODY, "timeout_s": 3601.0},
+                headers=OPERATOR_AUTH,
+            )
+        assert resp.status_code == 422
+
+
+class TestDevloopRunInvalidRunId:
+    def test_run_id_with_path_traversal_returns_422(self):
+        """run_id containing '..' is rejected with 422."""
+        with _make_client() as client:
+            resp = client.post(
+                "/v1/devloop/run",
+                json={**VALID_BODY, "run_id": "../etc/passwd"},
+                headers=OPERATOR_AUTH,
+            )
+        assert resp.status_code == 422
+
+    def test_run_id_with_slashes_returns_422(self):
+        """run_id containing '/' is rejected with 422."""
+        with _make_client() as client:
+            resp = client.post(
+                "/v1/devloop/run",
+                json={**VALID_BODY, "run_id": "a/b"},
+                headers=OPERATOR_AUTH,
+            )
+        assert resp.status_code == 422
+
+    def test_valid_run_id_with_hyphens_and_underscores(self):
+        """run_id with hyphens and underscores is accepted."""
+        with patch(
+            "genus.dev.devloop_orchestrator.DevLoopOrchestrator.run",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.return_value = None
+            with _make_client() as client:
+                resp = client.post(
+                    "/v1/devloop/run",
+                    json={**VALID_BODY, "run_id": "my_run-123"},
+                    headers=OPERATOR_AUTH,
+                )
+        assert resp.status_code == 200
+        assert resp.json()["run_id"] == "my_run-123"
+
+
+class TestDevloopRunUnexpectedError:
+    def test_unexpected_exception_returns_500(self):
+        """Unexpected orchestrator exception returns HTTP 500."""
+        with patch(
+            "genus.dev.devloop_orchestrator.DevLoopOrchestrator.run",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = RuntimeError("something went wrong")
+            with _make_client() as client:
+                resp = client.post("/v1/devloop/run", json=VALID_BODY, headers=OPERATOR_AUTH)
+        assert resp.status_code == 500
